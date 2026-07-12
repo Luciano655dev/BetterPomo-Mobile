@@ -1,56 +1,103 @@
-# Welcome to your Expo app 👋
+# 📱 BetterPomo Mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+The native iOS & Android client for [BetterPomo](https://github.com/luciano655dev) —
+a shared, real-time Pomodoro timer. Built with Expo and expo-router, it talks to the
+same [Express API](../betterpomo-api) and Supabase project as the [web app](../betterpomo-webapp),
+with full feature parity plus offline sessions.
 
-## Get started
+Built by [Luciano Menezes](https://github.com/luciano655dev).
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## Features
 
-2. Start the app
+- **Shared real-time timer** — server-authoritative countdown that survives backgrounding
+- **Pomodoro & running-timer modes** — focus/break cycles or an open stopwatch with laps
+- **Live chat, participants, friends & DMs**
+- **Ambient sound mixer** — layer looping sounds, set each level, pause-all, and save one-tap presets
+- **Offline solo sessions** — run fully offline; history syncs on reconnect
+- **Local notifications** — timer-end alerts fire even while the app is backgrounded
+- **Sign in** with email/password, Google, or Apple (iOS)
+- **Dark / light / system themes** matching the web app
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## Tech stack
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+| Concern | Technology |
+|---|---|
+| Framework | Expo SDK 57 · React Native 0.86 |
+| Routing | expo-router |
+| Data fetching | SWR (same keys/intervals as the web app) |
+| Realtime & Auth | Supabase |
+| Language | TypeScript |
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+---
 
-## Get a fresh project
+## Getting started
 
-When you're ready, run:
+### Prerequisites
+
+- Node.js 18+
+- Xcode (iOS Simulator) and/or Android Studio
+- The [BetterPomo API](../betterpomo-api) running on `:4000`
+
+### Setup
 
 ```bash
-npm run reset-project
+npm install
+cp .env.example .env     # fill in Supabase URL + anon key (same as the web app)
+npx expo start --ios     # iOS Simulator; API must be running on :4000
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Point the app at the API via `EXPO_PUBLIC_API_URL`:
 
-### Other setup steps
+- **iOS Simulator** — `http://localhost:4000` works as-is.
+- **Physical device (Expo Go)** — replace `localhost` with your Mac's LAN IP.
+- **Android emulator** — use `http://10.0.2.2:4000`.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+### Google OAuth
 
-## Learn more
+Google login round-trips through the system browser via Supabase PKCE. The redirect
+URI must be allowlisted in the Supabase dashboard
+(**Authentication → URL Configuration → Redirect URLs**):
 
-To learn more about developing your project with Expo, look at the following resources:
+- Dev build / production: `betterpomo://`
+- Expo Go: the `exp://<lan-ip>:<port>` value logged to the console as
+  `[auth] Google OAuth redirect URI:` on the login screen.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## Architecture
 
-Join our community of developers creating universal apps.
+The client layer mirrors the web app so behavior stays consistent across platforms:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- `src/lib/api.ts` — port of the web app's `backend-api.ts` (Bearer token,
+  `{ data }` unwrap, 401 → refresh/sign-out).
+- `src/lib/hooks.ts` — SWR hooks with the same keys and refresh intervals as the web app.
+- `src/lib/realtime.ts` — `uniqueChannel` helper for Supabase `postgres_changes`.
+- `src/providers/SWRProvider.tsx` — wires SWR focus/visibility to `AppState`
+  (revalidate on foreground, pause polling in background).
+- `src/theme/tokens.ts` — hex conversions of the web app's OKLCH palette;
+  light/dark/system via `ThemeContext`.
+
+Timer state is derived from server timestamps (`timer_started_at` /
+`paused_elapsed_seconds`), so countdowns stay correct across backgrounding, and a
+local notification covers timer-end while the app is suspended.
+
+Routes live in `src/app/` (expo-router):
+
+```
+(auth)/login, register, forgot-password
+(app)/(tabs)/{index, search, messages, profile}
+(app)/{create, join, settings, notifications, onboarding, upgrade, offline-session}
+(app)/session/[code], messages/[id], u/[username]
+```
+
+---
+
+## License
+
+Licensed under the **BetterPomo Non-Commercial License** — see [LICENSE](./LICENSE).
+Free to read, learn from, and modify **with credit**; **no commercial use**.
+Contact [Luciano Menezes](https://github.com/luciano655dev) for a commercial license.

@@ -1,20 +1,34 @@
 {
   "expo": {
-    "name": "betterpomo-mobile",
-    "slug": "betterpomo-mobile",
+    "name": "BetterPomo",
+    "slug": "betterpomo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "betterpomomobile",
+    "scheme": "betterpomo",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.betterpomo.app",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "usesAppleSignIn": true,
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
+          }
+        ]
+      }
     },
     "android": {
+      "package": "com.betterpomo.app",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#f6f6f6",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -28,11 +42,22 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#f6f6f6",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 180,
+          "dark": {
+            "backgroundColor": "#121215",
+            "image": "./assets/images/splash-icon-dark.png"
+          }
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-audio",
+      "expo-font",
+      "expo-notifications",
+      "expo-secure-store",
+      "expo-apple-authentication",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
