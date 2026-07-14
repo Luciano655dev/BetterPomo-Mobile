@@ -315,6 +315,21 @@ export function useNotifications() {
   );
 }
 
+export interface NotificationPreferences {
+  timers: boolean;
+  friends: boolean;
+  sessions: boolean;
+  messages: boolean;
+  account: boolean;
+}
+
+export function useNotificationPreferences() {
+  return useSWR<NotificationPreferences>("/api/notifications/preferences", fetcher, {
+    revalidateOnFocus: true,
+    dedupingInterval: 10_000,
+  });
+}
+
 export function useActiveSessions(q?: string) {
   const key = q ? `/api/sessions/active?q=${encodeURIComponent(q)}` : "/api/sessions/active";
   return useSWR<ActiveSession[]>(key, fetcher, {

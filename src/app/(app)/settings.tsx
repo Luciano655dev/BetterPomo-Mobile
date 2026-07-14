@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
+  AppState,
   Linking,
   Modal,
   Pressable,
@@ -21,7 +22,13 @@ import { Segmented } from "@/components/ui/Segmented";
 import { StackHeader } from "@/components/ui/StackHeader";
 import { api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/billing-flags";
-import { useBilling, useInvalidate, useProfile } from "@/lib/hooks";
+import { useBilling, useInvalidate, useNotificationPreferences, useProfile, type NotificationPreferences } from "@/lib/hooks";
+import {
+  getNotificationPermissionStatus,
+  registerPushDevice,
+  requestNotificationPermission,
+  setLocalTimerNotificationsEnabled,
+} from "@/lib/notifications";
 import { purchasesAvailable, showManageSubscriptions } from "@/lib/purchases";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme, type ThemePreference } from "@/theme/ThemeContext";
@@ -62,9 +69,47 @@ export default function SettingsScreen() {
   const { signOut } = useAuth();
   const router = useRouter();
   const { data: profile, mutate } = useProfile();
+  const { data: notificationPreferences, mutate: mutateNotificationPreferences } = useNotificationPreferences();
   const { invalidateProfile } = useInvalidate();
   const [editOpen, setEditOpen] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<string>("undetermined");
+
+  useEffect(() => {
+    const refreshPermission = () => void getNotificationPermissionStatus().then(setNotificationPermission);
+    refreshPermission();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshPermission();
+    });
+    return () => subscription.remove();
+  }, []);
+
+  async function enableSystemNotifications() {
+    if (notificationPermission === "denied") {
+      await Linking.openSettings();
+      return;
+    }
+    const granted = await requestNotificationPermission();
+    setNotificationPermission(granted ? "granted" : "denied");
+    if (granted) await registerPushDevice();
+  }
+
+  async function toggleNotification(key: keyof NotificationPreferences, enabled: boolean) {
+    const previous = notificationPreferences ?? {
+      timers: true, friends: true, sessions: true, messages: true, account: true,
+    };
+    const next = { ...previous, [key]: enabled };
+    await mutateNotificationPreferences(next, { revalidate: false });
+    if (key === "timers") await setLocalTimerNotificationsEnabled(enabled);
+    try {
+      await api.patch("/api/notifications/preferences", { [key]: enabled });
+      await mutateNotificationPreferences();
+    } catch (e) {
+      await mutateNotificationPreferences(previous, { revalidate: false });
+      if (key === "timers") await setLocalTimerNotificationsEnabled(previous.timers);
+      dialog.toast(e instanceof Error ? e.message : "Failed to update notifications", "error");
+    }
+  }
 
   async function togglePrivacy(next: boolean) {
     try {
@@ -206,6 +251,47 @@ export default function SettingsScreen() {
             value={preference}
             onChange={setPreference}
           />
+        </Card>
+
+        {/* Notification permission + category controls */}
+        <Card style={{ gap: 12 }}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1 }}>
+              {sectionTitle("Notifications")}
+              <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans, marginTop: 2 }}>
+                {notificationPermission === "granted" ? "Enabled in iOS" : "Disabled in iOS"}
+              </Text>
+            </View>
+            {notificationPermission !== "granted" && (
+              <Button
+                title={notificationPermission === "denied" ? "Open Settings" : "Enable"}
+                size="sm"
+                variant="outline"
+                onPress={enableSystemNotifications}
+              />
+            )}
+          </View>
+          {(
+            [
+              ["timers", "Timers", "Pomodoro completion alerts"],
+              ["friends", "Friends", "Friend requests and acceptances"],
+              ["sessions", "Sessions", "Invitations to focus sessions"],
+              ["messages", "Messages", "New messages and group additions"],
+              ["account", "Account", "Important plan and account reminders"],
+            ] as const
+          ).map(([key, label, detail]) => (
+            <View key={key} style={styles.rowBetween}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>{label}</Text>
+                <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}>{detail}</Text>
+              </View>
+              <Switch
+                value={notificationPreferences?.[key] ?? true}
+                onValueChange={(enabled) => toggleNotification(key, enabled)}
+                trackColor={{ true: colors.foreground }}
+              />
+            </View>
+          ))}
         </Card>
 
         {/* Privacy */}

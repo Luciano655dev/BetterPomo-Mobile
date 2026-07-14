@@ -10,6 +10,12 @@ import { Button } from "@/components/ui/Button";
 import { Logo } from "@/components/ui/Logo";
 import { api } from "@/lib/api";
 import { useInvalidate } from "@/lib/hooks";
+import {
+  getNotificationPermissionStatus,
+  registerPushDevice,
+  requestNotificationPermission,
+} from "@/lib/notifications";
+import { dialog } from "@/components/ui/dialog";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
 
@@ -235,6 +241,15 @@ export default function OnboardingScreen() {
         })
         .then(invalidateProfile)
         .catch(() => {});
+      if ((await getNotificationPermissionStatus()) === "undetermined") {
+        const enable = await dialog.confirm({
+          title: "Stay on track",
+          message: "BetterPomo can tell you when a Pomodoro ends, a friend responds, or someone invites you to focus. You can choose each category in Settings.",
+          confirmText: "Enable notifications",
+          cancelText: "Not now",
+        });
+        if (enable && await requestNotificationPermission()) await registerPushDevice();
+      }
       if (dest === "create") router.replace("/create");
       else router.back();
     },

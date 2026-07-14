@@ -1,6 +1,7 @@
 import { Redirect, Stack } from "expo-router";
 import React from "react";
 import { NotificationRealtime } from "@/components/NotificationRealtime";
+import { PushNotificationManager } from "@/components/PushNotificationManager";
 import { OfflineSyncGate } from "@/components/OfflineSyncGate";
 import { OfflineBanner } from "@/components/ui/OfflineBanner";
 import { useAuth } from "@/providers/AuthProvider";
@@ -12,6 +13,7 @@ export default function AppLayout() {
   return (
     <>
       <NotificationRealtime />
+      <PushNotificationManager />
       <OfflineSyncGate />
       <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />

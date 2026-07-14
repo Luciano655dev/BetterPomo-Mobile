@@ -33,7 +33,6 @@ import { useInvalidate } from "@/lib/hooks";
 import { readTasks } from "@/lib/notes-storage";
 import {
   cancelTimerEndNotification,
-  ensureNotificationPermission,
   scheduleTimerEndNotification,
 } from "@/lib/notifications";
 import { enqueue } from "@/lib/offline-queue";
@@ -155,8 +154,6 @@ export function SessionScreen({
 
   useEffect(() => {
     activateKeepAwakeAsync("session").catch(() => {});
-    // Ask now, while foregrounded — the background handler can't show the dialog.
-    ensureNotificationPermission();
     return () => {
       deactivateKeepAwake("session").catch(() => {});
       // Leaving the session screen stops the ambient mix.
@@ -389,6 +386,42 @@ export function SessionScreen({
     isRunning,
     isStopwatch,
     handleTimerFinished,
+  ]);
+
+  // Keep one native iOS alert aligned with the current run. Scheduling while
+  // foregrounded means the OS retains it if BetterPomo is later terminated.
+  useEffect(() => {
+    let disposed = false;
+    const sync = async () => {
+      await cancelTimerEndNotification(notificationIdRef.current);
+      notificationIdRef.current = null;
+      const timer = timersRef.current[session.current_timer_index];
+      if (!isRunning || !session.timer_started_at || !timer || isStopwatch) return;
+      const elapsed = (Date.now() - new Date(session.timer_started_at).getTime()) / 1000;
+      const seconds = timer.duration - elapsed;
+      if (seconds <= 0) return;
+      const id = await scheduleTimerEndNotification(timer.name, seconds, {
+        session_code: session.code,
+      });
+      if (disposed) await cancelTimerEndNotification(id);
+      else notificationIdRef.current = id;
+    };
+    void sync();
+    return () => {
+      disposed = true;
+      const id = notificationIdRef.current;
+      notificationIdRef.current = null;
+      void cancelTimerEndNotification(id);
+    };
+  }, [
+    isRunning,
+    isStopwatch,
+    session.timer_started_at,
+    session.current_timer_index,
+    session.code,
+    currentTimer?.id,
+    currentTimer?.name,
+    currentTimer?.duration,
   ]);
 
   // ── Data fetchers ──────────────────────────────────────────────────────────
@@ -638,16 +671,13 @@ export function SessionScreen({
     };
   }, [session.id, isStopwatch, fetchLaps]);
 
-  // ── AppState: presence, refetch on foreground, background notification ────
+  // ── AppState: presence + foreground reconciliation ───────────────────────
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", async (state) => {
       const ch = participantChRef.current;
       if (state === "active") {
-        // Cancel the pending timer-end notification and reconcile all state —
-        // the socket was suspended while backgrounded, so events were missed.
-        cancelTimerEndNotification(notificationIdRef.current);
-        notificationIdRef.current = null;
+        // The socket was suspended while backgrounded, so reconcile missed state.
         fetchSession();
         fetchTimers();
         loadParticipants();
@@ -655,15 +685,6 @@ export function SessionScreen({
         ch?.track({ online_at: new Date().toISOString() }).catch(() => {});
       } else if (state === "background") {
         ch?.untrack().catch(() => {});
-        const s = sessionRef.current;
-        const current = timersRef.current[s.current_timer_index];
-        if (s.timer_state === "running" && s.timer_started_at && current && s.session_type === "pomodoro") {
-          const elapsed = (Date.now() - new Date(s.timer_started_at).getTime()) / 1000;
-          const rem = current.duration - elapsed;
-          if (rem > 0) {
-            notificationIdRef.current = await scheduleTimerEndNotification(current.name, rem);
-          }
-        }
       }
     });
     return () => sub.remove();

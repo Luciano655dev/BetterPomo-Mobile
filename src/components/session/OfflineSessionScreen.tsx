@@ -30,7 +30,6 @@ import { useInvalidate } from "@/lib/hooks";
 import { readTasks } from "@/lib/notes-storage";
 import {
   cancelTimerEndNotification,
-  ensureNotificationPermission,
   scheduleTimerEndNotification,
 } from "@/lib/notifications";
 import { enqueue } from "@/lib/offline-queue";
@@ -117,7 +116,6 @@ export function OfflineSessionScreen({ initialState, userId, username }: Offline
 
   useEffect(() => {
     activateKeepAwakeAsync("offline-session").catch(() => {});
-    ensureNotificationPermission();
     return () => {
       deactivateKeepAwake("offline-session").catch(() => {});
       stopAllAmbient();
@@ -244,23 +242,42 @@ export function OfflineSessionScreen({ initialState, userId, username }: Offline
     // the local notification already alerted the user).
   }, [state.timer_state, state.timer_started_at, state.current_timer_index, currentTimer, isRunning, isStopwatch, wake, update, state]);
 
-  // ── AppState: background notification + foreground reconcile ──────────────
+  useEffect(() => {
+    let disposed = false;
+    const sync = async () => {
+      await cancelTimerEndNotification(notificationIdRef.current);
+      notificationIdRef.current = null;
+      const currentState = stateRef.current;
+      const current = currentState.timers[currentState.current_timer_index];
+      if (!isRunning || !currentState.timer_started_at || !current || isStopwatch) return;
+      const seconds = current.duration - deriveElapsed(currentState);
+      if (seconds <= 0) return;
+      const id = await scheduleTimerEndNotification(current.name, seconds, { offline: true });
+      if (disposed) await cancelTimerEndNotification(id);
+      else notificationIdRef.current = id;
+    };
+    void sync();
+    return () => {
+      disposed = true;
+      const id = notificationIdRef.current;
+      notificationIdRef.current = null;
+      void cancelTimerEndNotification(id);
+    };
+  }, [
+    isRunning,
+    isStopwatch,
+    state.timer_started_at,
+    state.current_timer_index,
+    currentTimer?.name,
+    currentTimer?.duration,
+  ]);
+
+  // ── AppState: foreground reconcile ────────────────────────────────────────
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", async (appState) => {
       if (appState === "active") {
-        cancelTimerEndNotification(notificationIdRef.current);
-        notificationIdRef.current = null;
         setWake((w) => w + 1);
-      } else if (appState === "background") {
-        const s = stateRef.current;
-        const current = s.timers[s.current_timer_index];
-        if (s.timer_state === "running" && s.timer_started_at && current && s.session_type === "pomodoro") {
-          const rem = current.duration - deriveElapsed(s);
-          if (rem > 0) {
-            notificationIdRef.current = await scheduleTimerEndNotification(current.name, rem);
-          }
-        }
       }
     });
     return () => sub.remove();

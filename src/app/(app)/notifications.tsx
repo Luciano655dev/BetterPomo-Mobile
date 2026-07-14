@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter, type Href } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import React, { useState } from "react";
 import {
   FlatList,
@@ -74,7 +74,8 @@ function relativeTime(iso: string): string {
 
 export default function NotificationsScreen() {
   const { colors } = useTheme();
-  const [tab, setTab] = useState<Tab>("all");
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<Tab>(params.tab === "requests" ? "requests" : "all");
   const { data: reqs } = useFriendRequests();
   const incomingCount = reqs?.incoming.length ?? 0;
 

@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import { BILLING_ENABLED } from "@/lib/billing-flags";
 import { supabase } from "@/lib/supabase";
 import { configurePurchases, logOutPurchases } from "@/lib/purchases";
+import { unregisterPushDevice } from "@/lib/notifications";
 
 interface AuthContextValue {
   session: Session | null;
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       isLoading,
       signOut: async () => {
+        await unregisterPushDevice();
         await supabase.auth.signOut();
       },
     }),
