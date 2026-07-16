@@ -41,7 +41,7 @@ export function ChatPanel({ sessionId, userId, userEmoji = "🍅", onOpenUser }:
         async (payload) => {
           const { data: profile } = await supabase
             .from("profiles")
-            .select("username, emoji")
+            .select("username, display_name, emoji")
             .eq("id", payload.new.user_id)
             .single();
           if (!active) return;
@@ -101,6 +101,7 @@ export function ChatPanel({ sessionId, userId, userEmoji = "🍅", onOpenUser }:
           const isOwn = msg.user_id === userId;
           const emoji = isOwn ? userEmoji : (msg.profiles?.emoji ?? "🍅");
           const username = msg.profiles?.username ?? "Unknown";
+          const displayName = msg.profiles?.display_name ?? username;
           return (
             <View style={[styles.msgRow, isOwn && { flexDirection: "row-reverse" }]}>
               <Text style={{ fontSize: 18 }}>{emoji}</Text>
@@ -108,7 +109,7 @@ export function ChatPanel({ sessionId, userId, userEmoji = "🍅", onOpenUser }:
                 {!isOwn && (
                   <Pressable onPress={onOpenUser ? () => onOpenUser(username) : undefined}>
                     <Text style={{ fontSize: 10, color: colors.mutedForeground, marginBottom: 2, fontFamily: fonts.sans }}>
-                      {username}
+                      {displayName} <Text style={{ color: colors.mutedForeground }}>@{username}</Text>
                     </Text>
                   </Pressable>
                 )}

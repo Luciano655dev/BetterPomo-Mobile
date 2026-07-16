@@ -55,11 +55,12 @@ interface OfflineSessionScreenProps {
   initialState: OfflineSessionState;
   userId: string;
   username: string | null;
+  displayName: string | null;
 }
 
 type PanelTab = "notes" | "sounds" | "config";
 
-export function OfflineSessionScreen({ initialState, userId, username }: OfflineSessionScreenProps) {
+export function OfflineSessionScreen({ initialState, userId, username, displayName }: OfflineSessionScreenProps) {
   const { colors, scheme } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -73,7 +74,7 @@ export function OfflineSessionScreen({ initialState, userId, username }: Offline
   const [ended, setEnded] = useState(false);
   const [summary, setSummary] = useState<SummaryEntry | null>(null);
   const [exitMenuOpen, setExitMenuOpen] = useState(false);
-  const [ending, setEnding] = useState(false);
+  const [endAction, setEndAction] = useState<"save" | "discard" | null>(null);
 
   const stateRef = useRef(initialState);
   const endedRef = useRef(false);
@@ -91,6 +92,7 @@ export function OfflineSessionScreen({ initialState, userId, username }: Offline
   );
 
   const isStopwatch = state.session_type === "stopwatch";
+  const ending = endAction !== null;
   const workTimers = state.timers.filter((t) => !isBreakTimer(t.name));
   const breakTimers = state.timers.filter((t) => isBreakTimer(t.name));
   const currentTimer = state.timers[state.current_timer_index] ?? null;
@@ -285,27 +287,30 @@ export function OfflineSessionScreen({ initialState, userId, username }: Offline
 
   // ── End session → queue history upload ─────────────────────────────────────
 
-  async function handleEnd() {
+  async function handleEnd(saveToHistory: boolean) {
     if (endedRef.current) return;
     endedRef.current = true;
-    setEnding(true);
+    setEndAction(saveToHistory ? "save" : "discard");
     const s = stateRef.current;
-    const now = new Date().toISOString();
-    const payload = {
-      session_name: s.name,
-      duration_seconds: Math.max(0, Math.floor((Date.now() - new Date(s.started_at).getTime()) / 1000)),
-      timers_used: s.timers.map((t) => ({ name: t.name, duration: t.duration })),
-      participants: username ? [{ username }] : [],
-      tasks: await readTasks(s.id, userId),
-      completed_at: now,
-    };
-    const record: SummaryEntry = { ...payload };
-    await enqueue(userId, payload);
+    let record: SummaryEntry | null = null;
+    if (saveToHistory) {
+      const payload = {
+        session_name: s.name,
+        duration_seconds: Math.max(0, Math.floor((Date.now() - new Date(s.started_at).getTime()) / 1000)),
+        timers_used: s.timers.map((t) => ({ name: t.name, duration: t.duration })),
+        participants: username ? [{ username, display_name: displayName ?? username }] : [],
+        tasks: await readTasks(s.id, userId),
+        completed_at: new Date().toISOString(),
+      };
+      record = { ...payload };
+      await enqueue(userId, payload);
+    }
     await clearOfflineSession(userId, s.id);
-    syncPendingUploads(() => invalidateHistory());
+    if (saveToHistory) syncPendingUploads(() => invalidateHistory());
     setSummary(record);
     setExitMenuOpen(false);
-    setEnded(true);
+    if (saveToHistory) setEnded(true);
+    else router.back();
   }
 
   function goHome() {
@@ -344,7 +349,7 @@ export function OfflineSessionScreen({ initialState, userId, username }: Offline
 
   // ── Render: active ─────────────────────────────────────────────────────────
 
-  const breakTint = scheme === "dark" ? "#0c1f16" : "#e9f7f0";
+  const breakTint = "rgba(132, 204, 22, 0.03)";
 
   return (
     <KeyboardAvoidingView
@@ -545,7 +550,7 @@ export function OfflineSessionScreen({ initialState, userId, username }: Offline
               </Text>
               <Text style={{ fontSize: 13, lineHeight: 18, color: colors.mutedForeground, fontFamily: fonts.sans }}>
                 Go home to keep this offline session running — you can jump back in from the banner.
-                Ending saves it, and it uploads to your history when you&apos;re online.
+                When ending, choose whether it should upload to your history.
               </Text>
             </View>
 
@@ -561,13 +566,28 @@ export function OfflineSessionScreen({ initialState, userId, username }: Offline
             </Pressable>
 
             <Pressable
-              onPress={handleEnd}
+              onPress={() => handleEnd(false)}
               disabled={ending}
+              accessibilityRole="button"
+              accessibilityLabel="End offline session without saving to history"
               style={({ pressed }) => [styles.exitRow, pressed && { backgroundColor: colors.muted }]}
             >
               <Ionicons name="exit-outline" size={18} color={colors.destructive} />
               <Text style={{ fontSize: 15, fontFamily: fonts.sansMedium, color: colors.destructive }}>
-                {ending ? "Ending…" : "End session"}
+                {endAction === "discard" ? "Ending…" : "End without saving"}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => handleEnd(true)}
+              disabled={ending}
+              accessibilityRole="button"
+              accessibilityLabel="Save offline session to history and end"
+              style={({ pressed }) => [styles.exitRow, pressed && { backgroundColor: colors.muted }]}
+            >
+              <Ionicons name="save-outline" size={18} color={colors.destructive} />
+              <Text style={{ fontSize: 15, fontFamily: fonts.sansMedium, color: colors.destructive }}>
+                {endAction === "save" ? "Saving…" : "Save & end"}
               </Text>
             </Pressable>
 

@@ -32,7 +32,7 @@ interface LoadedState {
   userId: string;
   userRole: ParticipantRole;
   userJoinedAt: string;
-  userProfile: { id: string; username: string; emoji: string };
+  userProfile: { id: string; username: string; display_name: string; emoji: string };
 }
 
 interface JoinedResponse {
@@ -62,7 +62,7 @@ export default function SessionRoute() {
       if (!user) return;
       const [timers, profile] = await Promise.all([
         api.get<SessionTimer[]>(`/api/sessions/${session.id}/timers`),
-        api.get<{ id: string; username: string; emoji: string }>("/api/profile"),
+        api.get<{ id: string; username: string; display_name: string; emoji: string }>("/api/profile"),
         api.patch(`/api/sessions/${session.id}/participants/me`, { left_at: null }).catch(() => null),
       ]);
       setNeedsPassword(null);
@@ -75,6 +75,7 @@ export default function SessionRoute() {
         userProfile: {
           id: user.id,
           username: profile?.username ?? "Unknown",
+          display_name: profile?.display_name ?? profile?.username ?? "Unknown",
           emoji: profile?.emoji ?? "🍅",
         },
       });

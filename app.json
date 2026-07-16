@@ -4,7 +4,7 @@
     "slug": "betterpomo",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/Icon_light.png",
     "scheme": "betterpomo",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -12,6 +12,10 @@
       "buildNumber": "3",
       "supportsTablet": false,
       "usesAppleSignIn": true,
+      "icon": {
+        "light": "./assets/images/Icon_light.png",
+        "dark": "./assets/images/Icon_dark.png"
+      },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
@@ -41,10 +45,10 @@
     "android": {
       "package": "com.betterpomo.app",
       "versionCode": 1,
+      "icon": "./assets/images/Icon_light.png",
       "adaptiveIcon": {
-        "backgroundColor": "#f6f6f6",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/images/Logo_light.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -72,7 +76,7 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/Icon_light.png"
     },
     "plugins": [
       "expo-router",
@@ -80,11 +84,12 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#f6f6f6",
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/Logo_light.png",
           "imageWidth": 180,
+          "resizeMode": "contain",
           "dark": {
             "backgroundColor": "#121215",
-            "image": "./assets/images/splash-icon-dark.png"
+            "image": "./assets/images/Logo_dark.png"
           }
         }
       ],

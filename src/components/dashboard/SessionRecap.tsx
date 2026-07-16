@@ -16,7 +16,7 @@ export interface SummaryEntry {
   completed_at: string;
   duration_seconds: number | null;
   timers_used: { name: string; duration: number }[] | null;
-  participants: { username: string }[] | null;
+  participants: { username: string; display_name?: string }[] | null;
   tasks?: { text: string; done: boolean }[] | null;
 }
 
@@ -93,7 +93,9 @@ export function SessionRecap({ entry }: { entry: SummaryEntry }) {
   const tasks = entry.tasks ?? [];
   const done = tasks.filter((t) => t.done);
   const people = entry.participants ?? [];
-  const others = people.length > 1 ? people.map((p) => p.username) : [];
+  const others = people.length > 1
+    ? people.map((p) => `${p.display_name ?? p.username} (@${p.username})`)
+    : [];
 
   const date = new Date(entry.completed_at).toLocaleDateString(undefined, {
     weekday: "short",
@@ -163,7 +165,7 @@ export function SessionRecap({ entry }: { entry: SummaryEntry }) {
       >
         <View ref={shotRef} collapsable={false} style={[styles.card, { backgroundColor: fill }]}>
           <View style={[styles.pill, { backgroundColor: sc.foreground }]}>
-            <Logo size={14} tint={sc.background} />
+            <Logo size={14} variant={stickerScheme === "dark" ? "light" : "dark"} />
             <Text style={{ fontSize: 11, fontFamily: fonts.sansSemiBold, color: sc.background }}>
               BetterPomo
             </Text>

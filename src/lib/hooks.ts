@@ -30,6 +30,7 @@ export interface Entitlements {
 export interface Profile {
   id: string;
   username: string;
+  display_name: string;
   emoji: string;
   bio: string | null;
   is_private: boolean;
@@ -103,6 +104,7 @@ export interface MyActiveSession {
 export interface UserProfile {
   id: string;
   username: string;
+  display_name: string;
   emoji: string;
   bio: string | null;
   is_private: boolean;
@@ -161,8 +163,9 @@ export function useMyActiveSession() {
 
 export function useHistory(limit = 50, offset = 0) {
   return useSWR<HistoryEntry[]>(`/api/history?limit=${limit}&offset=${offset}`, fetcher, {
-    revalidateOnFocus: false,
+    revalidateOnFocus: true,
     dedupingInterval: 30_000,
+    refreshInterval: 60_000,
   });
 }
 
@@ -193,6 +196,7 @@ export function useUserActiveSession(username: string | null) {
 export interface Friend {
   id: string;
   username: string;
+  display_name: string;
   emoji: string;
   bio: string | null;
   is_private: boolean;
@@ -203,6 +207,7 @@ export interface FriendRequest {
   direction: "incoming" | "outgoing";
   id: string;
   username: string;
+  display_name: string;
   emoji: string;
   requested_at: string;
 }
@@ -248,6 +253,7 @@ export function useUserFriends(username: string | null) {
 export interface ConversationMember {
   id: string;
   username: string;
+  display_name: string;
   emoji: string;
 }
 
@@ -295,6 +301,7 @@ export interface AppNotification {
   entity_id: string | null;
   metadata: {
     username?: string;
+    display_name?: string;
     emoji?: string;
     name?: string;
     code?: string;

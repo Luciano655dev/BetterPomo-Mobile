@@ -7,9 +7,10 @@ import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Logo } from "@/components/ui/Logo";
 import { api } from "@/lib/api";
-import { useInvalidate } from "@/lib/hooks";
+import { useInvalidate, useProfile } from "@/lib/hooks";
 import {
   getNotificationPermissionStatus,
   registerPushDevice,
@@ -117,6 +118,7 @@ const LOADING_STEPS = [
 ];
 
 const ONBOARDED_KEY = "bp_onboarded";
+const PROFILE_EMOJIS = ["🍅", "🤖", "🦊", "🐸", "💙", "🌙", "🔥", "🎯"];
 // Steps: 0 welcome · 1-4 questions · 5 loading · 6 results · 7-9 explainers · 10 handoff
 const TOTAL_STEPS = 11;
 
@@ -203,6 +205,7 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { invalidateProfile } = useInvalidate();
+  const { data: profile } = useProfile();
 
   const [step, setStep] = useState(0);
   const [leaving, setLeaving] = useState(false);
@@ -212,6 +215,15 @@ export default function OnboardingScreen() {
   const [style, setStyle] = useState<FocusStyle | null>(null);
   const [peak, setPeak] = useState<FocusPeak | null>(null);
   const [struggle, setStruggle] = useState<Struggle | null>(null);
+  const [identityDraft, setIdentityDraft] = useState<{
+    displayName: string; username: string; bio: string; emoji: string;
+  } | null>(null);
+  const identity = identityDraft ?? {
+    displayName: profile?.display_name ?? "",
+    username: profile?.username ?? "",
+    bio: profile?.bio ?? "",
+    emoji: profile?.emoji ?? "🍅",
+  };
 
   // Loading beat: cycle messages, then reveal the results. The i=0 timeout resets
   // the message index, so no synchronous setState is needed in the effect body.
@@ -230,17 +242,22 @@ export default function OnboardingScreen() {
       if (leaving) return;
       setLeaving(true);
       try {
-        await AsyncStorage.setItem(ONBOARDED_KEY, "1");
-      } catch {}
-      api
-        .patch("/api/profile", {
+        await api.patch("/api/profile", {
           onboarding_completed: true,
+          ...(profile && identity.displayName.trim() ? { display_name: identity.displayName.trim() } : {}),
+          ...(profile && identity.username.trim() ? { username: identity.username.trim() } : {}),
+          ...(profile ? { emoji: identity.emoji, bio: identity.bio.trim() || null } : {}),
           ...(category ? { focus_category: category } : {}),
           ...(style ? { focus_style: style } : {}),
           ...(peak ? { focus_peak: peak } : {}),
-        })
-        .then(invalidateProfile)
-        .catch(() => {});
+        });
+        invalidateProfile();
+        try { await AsyncStorage.setItem(ONBOARDED_KEY, "1"); } catch {}
+      } catch (error) {
+        setLeaving(false);
+        dialog.toast(error instanceof Error ? error.message : "Could not save your profile", "error");
+        return;
+      }
       if ((await getNotificationPermissionStatus()) === "undetermined") {
         const enable = await dialog.confirm({
           title: "Stay on track",
@@ -253,7 +270,7 @@ export default function OnboardingScreen() {
       if (dest === "create") router.replace("/create");
       else router.back();
     },
-    [leaving, category, style, peak, invalidateProfile, router]
+    [leaving, category, style, peak, invalidateProfile, router, profile, identity.displayName, identity.username, identity.emoji, identity.bio]
   );
 
   function back() {
@@ -441,12 +458,42 @@ export default function OnboardingScreen() {
             <View style={styles.center}>
               <Logo size={52} />
               <Text style={[styles.title, { color: colors.foreground, fontFamily: fonts.sansBold, marginTop: 20 }]}>
-                You&apos;re set.
+                Make it yours.
               </Text>
               <Text style={[styles.subtitle, { color: colors.mutedForeground, fontFamily: fonts.sans, textAlign: "center" }]}>
-                Your first focus session is one tap away — and every focused
-                minute goes on your record from here.
+                This is how other people will recognize you. You can change it again anytime.
               </Text>
+              <View style={{ alignSelf: "stretch", gap: 12, marginTop: 18 }}>
+                <Input label="Display name" value={identity.displayName} onChangeText={(t) => setIdentityDraft({ ...identity, displayName: t.slice(0, 50) })} />
+                <Input
+                  label="Username"
+                  value={identity.username}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={(t) => setIdentityDraft({ ...identity, username: t.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 24) })}
+                />
+                <Input label="Bio" value={identity.bio} onChangeText={(t) => setIdentityDraft({ ...identity, bio: t.slice(0, 300) })} placeholder="A little about you" />
+                <Text style={[styles.kicker, { color: colors.mutedForeground, fontFamily: fonts.sansMedium }]}>YOUR EMOJI</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {PROFILE_EMOJIS.map((item) => (
+                    <Pressable
+                      key={item}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Choose ${item} emoji`}
+                      accessibilityState={{ selected: identity.emoji === item }}
+                      onPress={() => setIdentityDraft({ ...identity, emoji: item })}
+                      style={{
+                        width: 42, height: 42, alignItems: "center", justifyContent: "center",
+                        borderRadius: radius.md, borderWidth: 1,
+                        borderColor: identity.emoji === item ? colors.foreground : colors.border,
+                        backgroundColor: identity.emoji === item ? colors.muted : colors.card,
+                      }}
+                    >
+                      <Text style={{ fontSize: 21 }}>{item}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
             </View>
           )}
         </Animated.View>

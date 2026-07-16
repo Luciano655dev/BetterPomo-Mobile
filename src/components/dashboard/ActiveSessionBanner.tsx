@@ -58,11 +58,13 @@ export function ActiveSessionBanner() {
   return (
     <Pressable
       onPress={() => router.push(`/session/${session.code}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`Return to session ${session.name}`}
       style={[styles.pill, { backgroundColor: colors.card, borderColor: colors.border }]}
     >
-      <View style={styles.iconWrap}>
-        <Ionicons name="timer-outline" size={16} color="#10b981" />
-        {running && <View style={styles.dot} />}
+      <View style={[styles.iconWrap, { backgroundColor: colors.brandTint }]}>
+        <Ionicons name="timer-outline" size={16} color={colors.brandText} />
+        {running && <View style={[styles.dot, { backgroundColor: colors.brand }]} />}
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: fonts.sansMedium, color: colors.foreground }}>
@@ -103,7 +105,6 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: "rgba(16,185,129,0.13)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -114,6 +115,5 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: "#10b981",
   },
 });

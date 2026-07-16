@@ -60,7 +60,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What are the session recaps?",
-    a: "When you leave a session your time is saved to history, and you get a shareable recap card with your totals and completed tasks.",
+    a: "When you leave a session, you can save it to history for a shareable recap with your totals and completed tasks, or leave without saving.",
   },
 ];
 
@@ -227,10 +227,10 @@ export default function SettingsScreen() {
           <EmojiAvatar emoji={profile?.emoji} size={48} />
           <View style={{ flex: 1 }}>
             <Text style={{ color: colors.foreground, fontFamily: fonts.sansSemiBold, fontSize: 16 }}>
-              {profile?.username ?? "…"}
+              {profile?.display_name ?? profile?.username ?? "…"}
             </Text>
             <Text style={{ color: colors.mutedForeground, fontFamily: fonts.sans, fontSize: 13 }}>
-              {profile?.is_private ? "Private profile" : "Public profile"}
+              {profile ? `@${profile.username} · ${profile.is_private ? "Private" : "Public"}` : "…"}
             </Text>
           </View>
           <Button title="Edit" size="sm" variant="outline" onPress={() => setEditOpen(true)} />
@@ -390,6 +390,7 @@ export default function SettingsScreen() {
         onClose={() => setEditOpen(false)}
         current={{
           username: profile?.username ?? "",
+          display_name: profile?.display_name ?? profile?.username ?? "",
           emoji: profile?.emoji ?? "🍅",
           bio: profile?.bio ?? "",
         }}
@@ -488,11 +489,12 @@ function ProfileEditModal({
 }: {
   open: boolean;
   onClose: () => void;
-  current: { username: string; emoji: string; bio: string };
+  current: { username: string; display_name: string; emoji: string; bio: string };
   onSaved: () => void;
 }) {
   const { colors } = useTheme();
   const [username, setUsername] = useState(current.username);
+  const [displayName, setDisplayName] = useState(current.display_name);
   const [emoji, setEmoji] = useState(current.emoji);
   const [bio, setBio] = useState(current.bio);
   const [busy, setBusy] = useState(false);
@@ -504,6 +506,7 @@ function ProfileEditModal({
     setPrevOpen(open);
     if (open) {
       setUsername(current.username);
+      setDisplayName(current.display_name);
       setEmoji(current.emoji);
       setBio(current.bio);
     }
@@ -511,6 +514,7 @@ function ProfileEditModal({
 
   async function save() {
     const patch: Record<string, unknown> = {};
+    if (displayName.trim() && displayName.trim() !== current.display_name) patch.display_name = displayName.trim();
     if (username.trim() && username.trim() !== current.username) patch.username = username.trim();
     if (emoji !== current.emoji) patch.emoji = emoji;
     if (bio.trim() !== current.bio) patch.bio = bio.trim() || null;
@@ -555,6 +559,15 @@ function ProfileEditModal({
               </Pressable>
             ))}
           </View>
+
+          <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginTop: 12 }]}>DISPLAY NAME</Text>
+          <TextInput
+            value={displayName}
+            onChangeText={(t) => setDisplayName(t.slice(0, 50))}
+            placeholder="Your display name"
+            placeholderTextColor={colors.mutedForeground}
+            style={[styles.editInput, { borderColor: colors.border, color: colors.foreground, fontFamily: fonts.sans }]}
+          />
 
           <Text style={[styles.fieldLabel, { color: colors.mutedForeground, marginTop: 12 }]}>USERNAME</Text>
           <TextInput

@@ -15,7 +15,7 @@ export interface HistoryUploadPayload {
   session_name: string;
   duration_seconds: number;
   timers_used: { name: string; duration: number }[];
-  participants: { username: string }[];
+  participants: { username: string; display_name?: string }[];
   tasks: { text: string; done: boolean }[];
   completed_at: string;
 }

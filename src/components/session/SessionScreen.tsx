@@ -62,7 +62,7 @@ interface SessionScreenProps {
   userId: string;
   userRole: ParticipantRole;
   userJoinedAt: string;
-  userProfile: { id: string; username: string; emoji: string };
+  userProfile: { id: string; username: string; display_name: string; emoji: string };
 }
 
 type PanelTab = "chat" | "notes" | "sounds" | "config";
@@ -94,7 +94,7 @@ export function SessionScreen({
   const [sessionEnded, setSessionEnded] = useState(initialSession.status === "ended");
   const [summary, setSummary] = useState<SummaryEntry | null>(null);
   const [exitMenuOpen, setExitMenuOpen] = useState(false);
-  const [leaving, setLeaving] = useState(false);
+  const [leaveAction, setLeaveAction] = useState<"save" | "discard" | null>(null);
 
   const sessionRef = useRef(initialSession);
   const timersRef = useRef(initialTimers);
@@ -107,6 +107,7 @@ export function SessionScreen({
 
   const isAdmin = userRoleState === "owner" || userRoleState === "admin";
   const isStopwatch = session.session_type === "stopwatch";
+  const leaving = leaveAction !== null;
 
   const workTimers = timers.filter((t) => !isBreakTimer(t.name));
   const breakTimers = timers.filter((t) => isBreakTimer(t.name));
@@ -426,11 +427,30 @@ export function SessionScreen({
 
   // ── Data fetchers ──────────────────────────────────────────────────────────
 
-  const onSessionEnded = useCallback(() => {
+  const onSessionEnded = useCallback((wasDeleted = false) => {
     if (sessionEndedRef.current) return;
     sessionEndedRef.current = true;
-    doSaveHistoryRef.current().then(() => setSessionEnded(true));
-  }, []);
+    const finish = async () => {
+      if (wasDeleted) {
+        try {
+          const archived = await api.get<SummaryEntry>(
+            `/api/history/session/${sessionRef.current.id}`,
+          );
+          setSummary(archived);
+          invalidateHistory();
+          invalidateSessions();
+          dialog.toast("Session closed after 24 hours of inactivity and was saved", "info");
+          setSessionEnded(true);
+          return;
+        } catch {
+          // A non-expiry deletion falls through to the normal idempotent save.
+        }
+      }
+      await doSaveHistoryRef.current();
+      setSessionEnded(true);
+    };
+    void finish();
+  }, [invalidateHistory, invalidateSessions]);
 
   const fetchSession = useCallback(async () => {
     if (Date.now() - lastActionAtRef.current < 2000) return;
@@ -443,12 +463,9 @@ export function SessionScreen({
       if (updated.status === "ended") onSessionEnded();
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
-      if (
-        message.includes("404") ||
-        message.toLowerCase().includes("not found") ||
-        message.includes("410") ||
-        message.toLowerCase().includes("session has ended")
-      ) {
+      if (message.includes("404") || message.toLowerCase().includes("not found")) {
+        onSessionEnded(true);
+      } else if (message.includes("410") || message.toLowerCase().includes("session has ended")) {
         onSessionEnded();
       }
     }
@@ -504,6 +521,7 @@ export function SessionScreen({
       timers_used: timersRef.current.map((t) => ({ name: t.name, duration: t.duration })),
       participants: (allParticipants ?? []).map((p) => ({
         username: p.profiles?.username ?? "Unknown",
+        display_name: p.profiles?.display_name ?? p.profiles?.username ?? "Unknown",
       })),
       duration_seconds: durationSeconds,
       tasks: await readTasks(s.id, userId),
@@ -542,22 +560,30 @@ export function SessionScreen({
     router.back();
   }
 
-  async function handleLeave() {
+  async function handleLeave(saveToHistory: boolean) {
     if (sessionEndedRef.current) {
       router.back();
       return;
     }
-    setLeaving(true);
+    setLeaveAction(saveToHistory ? "save" : "discard");
     sessionEndedRef.current = true;
-    await doSaveHistoryRef.current();
-    await api
-      .patch(`/api/sessions/${session.id}/participants/me`, { left_at: new Date().toISOString() })
-      .catch(() => null);
+    if (saveToHistory) await doSaveHistoryRef.current();
+    try {
+      await api.patch(`/api/sessions/${session.id}/participants/me`, {
+        left_at: new Date().toISOString(),
+        save_history: saveToHistory,
+      });
+    } catch {
+      sessionEndedRef.current = false;
+      setLeaveAction(null);
+      dialog.toast("Couldn't leave the session. Please try again.", "error");
+      return;
+    }
     participantChRef.current?.send({ type: "broadcast", event: "participant_update", payload: {} });
     invalidateSessions();
     setExitMenuOpen(false);
-    setLeaving(false);
-    setSessionEnded(true);
+    if (saveToHistory) setSessionEnded(true);
+    else router.back();
   }
 
   // ── Realtime: session sync channel (deterministic topic, shared with web) ──
@@ -734,7 +760,7 @@ export function SessionScreen({
   // ── Render: active session ─────────────────────────────────────────────────
 
   const activeParticipants = participants.filter((p) => !p.left_at);
-  const breakTint = scheme === "dark" ? "#0c1f16" : "#e9f7f0";
+  const breakTint = "rgba(132, 204, 22, 0.03)";
 
   return (
     <KeyboardAvoidingView
@@ -914,12 +940,12 @@ export function SessionScreen({
                   <View
                     style={[
                       styles.presenceDot,
-                      { borderColor: colors.background, backgroundColor: viewing ? "#10b981" : colors.mutedForeground },
+                      { borderColor: colors.background, backgroundColor: viewing ? colors.brand : colors.mutedForeground },
                     ]}
                   />
                 </View>
                 <Text numberOfLines={1} style={{ fontSize: 9, color: colors.mutedForeground, maxWidth: 52, fontFamily: fonts.sans }}>
-                  {p.profiles?.username ?? "?"}
+                  {p.profiles?.display_name ?? p.profiles?.username ?? "?"}
                   {p.user_id === userId ? " (you)" : ""}
                 </Text>
               </View>
@@ -1040,7 +1066,7 @@ export function SessionScreen({
               </Text>
               <Text style={{ fontSize: 13, lineHeight: 18, color: colors.mutedForeground, fontFamily: fonts.sans }}>
                 Go home to keep the session running in the background — you can jump back in from the
-                banner. Leaving saves your time to history and removes you from the session.
+                banner. When leaving, choose whether to save your time to history.
               </Text>
             </View>
 
@@ -1056,13 +1082,28 @@ export function SessionScreen({
             </Pressable>
 
             <Pressable
-              onPress={handleLeave}
+              onPress={() => handleLeave(false)}
               disabled={leaving}
+              accessibilityRole="button"
+              accessibilityLabel="Leave session without saving to history"
               style={({ pressed }) => [styles.exitRow, pressed && { backgroundColor: colors.muted }]}
             >
               <Ionicons name="exit-outline" size={18} color={colors.destructive} />
               <Text style={{ fontSize: 15, fontFamily: fonts.sansMedium, color: colors.destructive }}>
-                {leaving ? "Leaving…" : "Leave session"}
+                {leaveAction === "discard" ? "Leaving…" : "Leave without saving"}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => handleLeave(true)}
+              disabled={leaving}
+              accessibilityRole="button"
+              accessibilityLabel="Save session to history and leave"
+              style={({ pressed }) => [styles.exitRow, pressed && { backgroundColor: colors.muted }]}
+            >
+              <Ionicons name="save-outline" size={18} color={colors.destructive} />
+              <Text style={{ fontSize: 15, fontFamily: fonts.sansMedium, color: colors.destructive }}>
+                {leaveAction === "save" ? "Saving…" : "Save & leave"}
               </Text>
             </Pressable>
 

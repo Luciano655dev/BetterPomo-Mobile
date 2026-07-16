@@ -32,7 +32,7 @@ import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
 
-type Msg = ChatMessage & { sender?: { username: string; emoji: string } | null };
+type Msg = ChatMessage & { sender?: { username: string; display_name: string; emoji: string } | null };
 
 export default function ChatThreadScreen() {
   const { id: conversationId } = useLocalSearchParams<{ id: string }>();
@@ -60,8 +60,8 @@ export default function ChatThreadScreen() {
   const convo = conversations?.find((c) => c.id === conversationId);
   const title = convo
     ? convo.is_group
-      ? convo.title || convo.members.map((m) => m.username).join(", ") || "Group"
-      : (convo.members[0]?.username ?? "Chat")
+      ? convo.title || convo.members.map((m) => m.display_name ?? m.username).join(", ") || "Group"
+      : (convo.members[0]?.display_name ?? convo.members[0]?.username ?? "Chat")
     : "Chat";
 
   // Initial load + realtime subscription (mirrors webapp ChatThread).
@@ -81,13 +81,13 @@ export default function ChatThreadScreen() {
         }
         const { data: profiles } = await supabase
           .from("profiles")
-          .select("id, username, emoji")
+          .select("id, username, display_name, emoji")
           .in("id", ids);
         if (cancelled) return;
-        const byId = new Map<string, { username: string; emoji: string }>(
+        const byId = new Map<string, { username: string; display_name: string; emoji: string }>(
           (profiles ?? []).map((p) => [
             p.id as string,
-            { username: p.username as string, emoji: p.emoji as string },
+            { username: p.username as string, display_name: (p.display_name ?? p.username) as string, emoji: p.emoji as string },
           ]),
         );
         setMessages(msgs.map((m) => ({ ...m, sender: byId.get(m.sender_id) ?? null })));
@@ -111,7 +111,7 @@ export default function ChatThreadScreen() {
           const m = payload.new as ChatMessage;
           const { data: sender } = await supabase
             .from("profiles")
-            .select("username, emoji")
+            .select("username, display_name, emoji")
             .eq("id", m.sender_id)
             .single();
           if (cancelled) return;
@@ -231,6 +231,7 @@ export default function ChatThreadScreen() {
           const isOwn = m.sender_id === viewerId;
           const emoji = isOwn ? viewerEmoji : (m.sender?.emoji ?? "🍅");
           const username = m.sender?.username ?? "Unknown";
+          const displayName = m.sender?.display_name ?? username;
 
           if (m.kind === "session_invite") {
             return (
@@ -238,7 +239,7 @@ export default function ChatThreadScreen() {
                 <View style={[styles.inviteCard, { borderColor: colors.border, backgroundColor: colors.muted + "66" }]}>
                   <Ionicons name="calendar-outline" size={22} color={colors.mutedForeground} />
                   <Text style={{ fontSize: 13, color: colors.foreground, fontFamily: fonts.sans, textAlign: "center" }}>
-                    <Text style={{ fontFamily: fonts.sansSemiBold }}>{isOwn ? "You" : username}</Text>{" "}
+                    <Text style={{ fontFamily: fonts.sansSemiBold }}>{isOwn ? "You" : displayName}</Text>{" "}
                     invited to a {m.metadata?.session_type === "stopwatch" ? "stopwatch" : "pomodoro"} session
                   </Text>
                   <Text style={{ fontSize: 15, fontFamily: fonts.sansSemiBold, color: colors.foreground }}>
@@ -257,7 +258,7 @@ export default function ChatThreadScreen() {
                 {!isOwn && (
                   <Pressable onPress={() => router.push(`/u/${encodeURIComponent(username)}`)}>
                     <Text style={{ fontSize: 10, color: colors.mutedForeground, marginBottom: 2, fontFamily: fonts.sans }}>
-                      {username}
+                      {displayName} <Text style={{ fontFamily: fonts.mono }}>@{username}</Text>
                     </Text>
                   </Pressable>
                 )}
@@ -511,7 +512,7 @@ function AddMemberModal({
                 >
                   <Text style={{ fontSize: 20 }}>{f.emoji}</Text>
                   <Text style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>
-                    {f.username}
+                    {f.display_name} <Text style={{ color: colors.mutedForeground }}>@{f.username}</Text>
                   </Text>
                 </Pressable>
               ))}

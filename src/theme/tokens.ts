@@ -16,24 +16,30 @@ export interface ThemeTokens {
   input: string;
   ring: string;
   success: string;
+  brand: string;
+  brandTint: string;
+  brandText: string;
 }
 
 export const lightTokens: ThemeTokens = {
-  background: "#f6f6f6",
-  foreground: "#262626",
-  card: "#fdfdfd",
-  primary: "#262626",
+  background: "#fafafa",
+  foreground: "#171717",
+  card: "#ffffff",
+  primary: "#171717",
   primaryForeground: "#fafafa",
-  secondary: "#ededed",
-  muted: "#ededed",
-  mutedForeground: "#717171",
-  accent: "#ededed",
+  secondary: "#f4f4f4",
+  muted: "#f4f4f4",
+  mutedForeground: "#737373",
+  accent: "#f4f4f4",
   destructive: "#e7000b",
   destructiveForeground: "#fafafa",
-  border: "#dedede",
-  input: "#dedede",
+  border: "#e5e5e5",
+  input: "#e5e5e5",
   ring: "#9e9e9e",
   success: "#16a34a",
+  brand: "#84cc16",
+  brandTint: "#f5fae8",
+  brandText: "#3f6212",
 };
 
 export const darkTokens: ThemeTokens = {
@@ -52,6 +58,9 @@ export const darkTokens: ThemeTokens = {
   input: "#2a2a2d",
   ring: "#62626a",
   success: "#4ade80",
+  brand: "#84cc16",
+  brandTint: "#1d2118",
+  brandText: "#bef264",
 };
 
 // --radius: 0.625rem (10px) scaled like the webapp.

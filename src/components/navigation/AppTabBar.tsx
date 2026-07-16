@@ -63,7 +63,13 @@ export function AppTabBar({ state, navigation }: BottomTabBarProps) {
     const focused = activeName === name;
     const badge = name === "messages" ? unreadMessages : 0;
     return (
-      <Pressable style={styles.tab} onPress={() => go(name)} accessibilityLabel={meta.label}>
+      <Pressable
+        style={styles.tab}
+        onPress={() => go(name)}
+        accessibilityRole="tab"
+        accessibilityLabel={meta.label}
+        accessibilityState={{ selected: focused }}
+      >
         <View>
           <Ionicons
             name={focused ? meta.on : meta.off}

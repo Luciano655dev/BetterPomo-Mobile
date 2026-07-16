@@ -163,13 +163,13 @@ function SessionRow({ session, onJoin }: { session: ActiveSession; onJoin: (code
       <View
         style={[
           styles.sessionIcon,
-          { backgroundColor: session.status === "active" ? "rgba(16,185,129,0.12)" : colors.muted },
+          { backgroundColor: session.status === "active" ? colors.brandTint : colors.muted },
         ]}
       >
         <Ionicons
           name={session.session_type === "stopwatch" ? "stopwatch-outline" : "timer-outline"}
           size={18}
-          color={session.status === "active" ? "#10b981" : colors.mutedForeground}
+          color={session.status === "active" ? colors.brandText : colors.mutedForeground}
         />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -266,12 +266,15 @@ function PeopleList({ q, onOpen }: { q: string; onOpen: (username: string) => vo
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Text numberOfLines={1} style={{ fontSize: 14, fontFamily: fonts.sansSemiBold, color: colors.foreground }}>
-                {item.username}
+                {item.display_name}
               </Text>
               {item.is_private && (
                 <Ionicons name="lock-closed" size={11} color={colors.mutedForeground} />
               )}
             </View>
+            <Text numberOfLines={1} style={{ fontSize: 11, color: colors.mutedForeground, fontFamily: fonts.mono }}>
+              @{item.username}
+            </Text>
             {item.bio ? (
               <Text numberOfLines={1} style={{ fontSize: 11, color: colors.mutedForeground, fontFamily: fonts.sans }}>
                 {item.bio}

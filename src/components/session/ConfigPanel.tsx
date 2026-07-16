@@ -287,6 +287,7 @@ export function ConfigPanel({
 
   async function manageParticipant(p: SessionParticipant) {
     const username = p.profiles?.username ?? "Unknown";
+    const displayName = p.profiles?.display_name ?? username;
     const isMe = p.user_id === currentUserId;
     const options: ActionOption[] = [];
 
@@ -301,7 +302,7 @@ export function ConfigPanel({
     }
     if (options.length === 0) return;
 
-    const choice = await dialog.actions({ title: username, options });
+    const choice = await dialog.actions({ title: `${displayName} (@${username})`, options });
     if (choice === "view" && onOpenUser) onOpenUser(username);
     else if (choice === "role") setRole(p.id, p.role === "admin" ? "member" : "admin");
     else if (choice === "kick") {
@@ -447,12 +448,13 @@ export function ConfigPanel({
         {sectionTitle(`Participants (${active.length})`)}
         {active.map((p) => {
           const username = p.profiles?.username ?? "Unknown";
+          const displayName = p.profiles?.display_name ?? username;
           const isMe = p.user_id === currentUserId;
           return (
             <Pressable key={p.id} onPress={() => manageParticipant(p)} style={styles.participantRow}>
               <Text style={{ fontSize: 18 }}>{p.profiles?.emoji ?? "🍅"}</Text>
               <Text numberOfLines={1} style={{ flex: 1, fontSize: 14, color: colors.foreground, fontFamily: fonts.sans }}>
-                {username}
+                {displayName} <Text style={{ color: colors.mutedForeground }}>@{username}</Text>
                 {isMe && <Text style={{ color: colors.mutedForeground }}> (you)</Text>}
               </Text>
               <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: fonts.sansMedium }}>

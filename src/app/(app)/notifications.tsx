@@ -32,23 +32,25 @@ type Tab = "all" | "requests";
 
 /** Maps a notification row to display text + destination (port of webapp util). */
 function describeNotification(n: AppNotification): { emoji: string; text: string; href: Href | null } {
-  const who = n.metadata.username ?? "Someone";
+  const who = n.metadata.display_name ?? n.metadata.username ?? "Someone";
+  const username = n.metadata.username ?? "";
+  const identity = username && who !== username ? `${who} (@${username})` : who;
   const emoji = n.metadata.emoji ?? "🔔";
   switch (n.type) {
     case "friend_request":
-      return { emoji, text: `${who} sent you a friend request`, href: null }; // → requests tab
+      return { emoji, text: `${identity} sent you a friend request`, href: null }; // → requests tab
     case "friend_accept":
-      return { emoji, text: `${who} accepted your friend request`, href: `/u/${encodeURIComponent(who)}` as Href };
+      return { emoji, text: `${identity} accepted your friend request`, href: username ? `/u/${encodeURIComponent(username)}` as Href : null };
     case "session_invite":
       return {
         emoji,
-        text: `${who} invited you to ${n.metadata.name ?? "a session"}`,
+        text: `${identity} invited you to ${n.metadata.name ?? "a session"}`,
         href: (n.metadata.conversation_id ? `/messages/${n.metadata.conversation_id}` : null) as Href | null,
       };
     case "group_add":
       return {
         emoji,
-        text: `${who} added you to ${n.metadata.title || "a group"}`,
+        text: `${identity} added you to ${n.metadata.title || "a group"}`,
         href: (n.entity_id ? `/messages/${n.entity_id}` : null) as Href | null,
       };
     case "trial_ending":
@@ -299,9 +301,10 @@ function RequestsList() {
                 style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}
               >
                 <Text style={{ fontSize: 22 }}>{r.emoji}</Text>
-                <Text numberOfLines={1} style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground, flexShrink: 1 }}>
-                  {r.username}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>{r.display_name}</Text>
+                  <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: fonts.mono, color: colors.mutedForeground }}>@{r.username}</Text>
+                </View>
               </Pressable>
               <Button
                 title="Accept"
@@ -337,9 +340,10 @@ function RequestsList() {
                 style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}
               >
                 <Text style={{ fontSize: 22 }}>{r.emoji}</Text>
-                <Text numberOfLines={1} style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground, flexShrink: 1 }}>
-                  {r.username}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>{r.display_name}</Text>
+                  <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: fonts.mono, color: colors.mutedForeground }}>@{r.username}</Text>
+                </View>
               </Pressable>
               <Button
                 title="Cancel"

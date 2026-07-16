@@ -20,6 +20,7 @@ export interface SessionData {
   paused_elapsed_seconds: number | null;
   is_private: boolean;
   is_password_protected?: boolean;
+  last_activity_at?: string;
 }
 
 export interface SessionParticipant {
@@ -28,7 +29,7 @@ export interface SessionParticipant {
   role: ParticipantRole;
   left_at: string | null;
   joined_at: string;
-  profiles: { username: string; emoji: string } | null;
+  profiles: { username: string; display_name: string; emoji: string } | null;
 }
 
 export interface Lap {
@@ -44,7 +45,7 @@ export interface SessionChatMessage {
   content: string;
   created_at: string;
   user_id: string;
-  profiles: { username: string; emoji: string } | null;
+  profiles: { username: string; display_name: string; emoji: string } | null;
 }
 
 export function isBreakTimer(name: string) {

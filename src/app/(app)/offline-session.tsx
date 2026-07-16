@@ -26,6 +26,7 @@ export default function OfflineSessionRoute() {
       initialState={state}
       userId={userId}
       username={profile?.username ?? null}
+      displayName={profile?.display_name ?? null}
     />
   );
 }

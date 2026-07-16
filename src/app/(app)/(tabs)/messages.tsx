@@ -108,8 +108,8 @@ export default function MessagesScreen() {
 function ConversationRow({ convo, onPress }: { convo: Conversation; onPress: () => void }) {
   const { colors } = useTheme();
   const title = convo.is_group
-    ? convo.title || convo.members.map((m) => m.username).join(", ") || "Group"
-    : (convo.members[0]?.username ?? "Chat");
+    ? convo.title || convo.members.map((m) => m.display_name ?? m.username).join(", ") || "Group"
+    : (convo.members[0]?.display_name ?? convo.members[0]?.username ?? "Chat");
   const emoji = convo.is_group ? "👥" : (convo.members[0]?.emoji ?? "🍅");
   const preview =
     convo.last_message_kind === "session_invite"
@@ -248,9 +248,10 @@ function NewConversationModal({
                 return (
                   <Pressable key={f.id} onPress={() => toggle(f.username)} style={styles.friendRow}>
                     <Text style={{ fontSize: 20 }}>{f.emoji}</Text>
-                    <Text style={{ flex: 1, fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>
-                      {f.username}
-                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>{f.display_name}</Text>
+                      <Text style={{ fontSize: 11, fontFamily: fonts.mono, color: colors.mutedForeground }}>@{f.username}</Text>
+                    </View>
                     <Ionicons
                       name={isSelected ? "checkmark-circle" : "ellipse-outline"}
                       size={20}

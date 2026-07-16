@@ -126,7 +126,7 @@ export function ProfileView({ username }: { username: string }) {
           <View style={{ flex: 1, gap: 6 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Text style={{ fontSize: 22, fontFamily: fonts.sansBold, color: colors.foreground }}>
-                {profile.username}
+                {profile.display_name}
               </Text>
               {activeSession && (
                 <View style={styles.liveBadge}>
@@ -144,6 +144,10 @@ export function ProfileView({ username }: { username: string }) {
                 </View>
               )}
             </View>
+
+            <Text style={{ fontSize: 13, color: colors.mutedForeground, fontFamily: fonts.mono }}>
+              @{profile.username}
+            </Text>
 
             <Pressable onPress={() => setFriendsOpen(true)} hitSlop={6}>
               <Text style={{ fontSize: 13, color: colors.mutedForeground, fontFamily: fonts.sans }}>
@@ -175,7 +179,7 @@ export function ProfileView({ username }: { username: string }) {
               This account is private
             </Text>
             <Text style={{ fontSize: 13, color: colors.mutedForeground, fontFamily: fonts.sans }}>
-              Only {profile.username} can see their activity.
+              Only {profile.display_name} can see their activity.
             </Text>
           </View>
         ) : (
@@ -208,6 +212,7 @@ export function ProfileView({ username }: { username: string }) {
         open={friendsOpen}
         onClose={() => setFriendsOpen(false)}
         username={profile.username}
+        displayName={profile.display_name}
         friends={friendsData?.friends ?? []}
         count={friendCount}
         isOwn={isOwn}
@@ -226,6 +231,7 @@ function FriendsModal({
   open,
   onClose,
   username,
+  displayName,
   friends,
   count,
   isOwn,
@@ -234,6 +240,7 @@ function FriendsModal({
   open: boolean;
   onClose: () => void;
   username: string;
+  displayName: string;
   friends: Friend[];
   count: number;
   isOwn: boolean;
@@ -270,7 +277,7 @@ function FriendsModal({
           onPress={(e) => e.stopPropagation()}
         >
           <Text style={{ fontSize: 16, fontFamily: fonts.sansSemiBold, color: colors.foreground, marginBottom: 12 }}>
-            {isOwn ? "Your friends" : `${username}'s friends`}
+            {isOwn ? "Your friends" : `${displayName}'s friends`}
           </Text>
           {friends.length === 0 ? (
             <Text style={{ fontSize: 13, color: colors.mutedForeground, fontFamily: fonts.sans, textAlign: "center", paddingVertical: 24 }}>
@@ -287,7 +294,10 @@ function FriendsModal({
                     <Text style={{ fontSize: 20 }}>{f.emoji}</Text>
                     <View style={{ flex: 1 }}>
                       <Text numberOfLines={1} style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>
-                        {f.username}
+                        {f.display_name}
+                      </Text>
+                      <Text numberOfLines={1} style={{ fontSize: 11, color: colors.mutedForeground, fontFamily: fonts.mono }}>
+                        @{f.username}
                       </Text>
                       {f.bio ? (
                         <Text numberOfLines={1} style={{ fontSize: 11, color: colors.mutedForeground, fontFamily: fonts.sans }}>

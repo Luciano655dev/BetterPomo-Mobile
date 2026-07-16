@@ -29,7 +29,7 @@ interface Props {
 
 type Entry = HistoryEntry & {
   timers_used: { name: string; duration: number }[] | null;
-  participants: { username: string }[] | null;
+  participants: { username: string; display_name?: string }[] | null;
 };
 
 export function HistorySection({
@@ -143,9 +143,9 @@ export function HistorySection({
 
           <View style={{ gap: 10 }}>
             {group.map((h) => {
-              const others = (h.participants ?? [])
-                .filter((p) => p.username !== currentUsername)
-                .map((p) => p.username);
+              const others = (h.participants ?? []).filter(
+                (p) => p.username !== currentUsername,
+              );
               const focusSec = estimateFocusSec(h.duration_seconds, h.timers_used ?? []);
               const doneTasks = h.tasks?.filter((t) => t.done).length ?? 0;
 
@@ -214,14 +214,16 @@ export function HistorySection({
                     {others.length > 0 && (
                       <Pressable
                         style={styles.stat}
-                        onPress={onOpenUser ? () => onOpenUser(others[0]) : undefined}
+                        onPress={onOpenUser ? () => onOpenUser(others[0].username) : undefined}
                       >
                         <Ionicons name="people-outline" size={12} color={colors.mutedForeground} />
                         <Text
                           numberOfLines={1}
                           style={[styles.statText, { color: colors.mutedForeground, maxWidth: 160 }]}
                         >
-                          {others.join(", ")}
+                          {others
+                            .map((person) => `${person.display_name ?? person.username} (@${person.username})`)
+                            .join(", ")}
                         </Text>
                       </Pressable>
                     )}

@@ -22,10 +22,55 @@ import { dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/Input";
 import { Logo } from "@/components/ui/Logo";
 import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts } from "@/theme/tokens";
 
 WebBrowser.maybeCompleteAuthSession();
+
+const NATIVE_OAUTH_RETURN_URL = "betterpomo://auth/callback";
+const MOBILE_OAUTH_BRIDGE_URL = "https://app.betterpomo.com/auth/callback?mobile=1";
+
+function getOAuthReturnUrl() {
+  if (Platform.OS === "web") {
+    return AuthSession.makeRedirectUri({ path: "auth/callback" });
+  }
+
+  // Keep this deterministic in development and production builds so Expo's
+  // auth browser can recognize the deep link, close, and return control here.
+  return AuthSession.makeRedirectUri({ native: NATIVE_OAUTH_RETURN_URL });
+}
+
+async function completeOAuthSession(callbackUrl: string) {
+  const url = new URL(callbackUrl);
+  const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const getParam = (name: string) => url.searchParams.get(name) ?? fragment.get(name);
+
+  const errorDescription = getParam("error_description") ?? getParam("error");
+  if (errorDescription) throw new Error(errorDescription);
+
+  const code = getParam("code");
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+    return;
+  }
+
+  // Supabase's PKCE flow returns a code, but accepting token callbacks keeps
+  // older installed builds and provider-specific responses compatible.
+  const accessToken = getParam("access_token");
+  const refreshToken = getParam("refresh_token");
+  if (accessToken && refreshToken) {
+    const { error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (error) throw error;
+    return;
+  }
+
+  throw new Error("The sign-in provider did not return a session.");
+}
 
 export default function LoginScreen() {
   const { colors } = useTheme();
@@ -83,6 +128,12 @@ export default function LoginScreen() {
         token: credential.identityToken,
       });
       if (error) dialog.toast(error.message || "Apple sign-in failed", "error");
+      else if (credential.fullName) {
+        const providerName = AppleAuthentication.formatFullName(credential.fullName).trim();
+        if (providerName) {
+          await api.post("/api/profile/initialize-oauth-identity", { provider_name: providerName }).catch(() => null);
+        }
+      }
       // Success: AuthProvider's listener flips session → (auth) layout redirects.
     } catch (e) {
       // User cancelled the native sheet — not an error worth surfacing.
@@ -94,7 +145,11 @@ export default function LoginScreen() {
   async function handleGoogleLogin() {
     setGoogleLoading(true);
     try {
-      const redirectTo = AuthSession.makeRedirectUri();
+      const returnUrl = getOAuthReturnUrl();
+      // Supabase already allows the web callback. On native, that callback
+      // forwards the PKCE code to the app's custom scheme without exchanging it,
+      // so the verifier that is stored on this device can finish the session.
+      const redirectTo = Platform.OS === "web" ? returnUrl : MOBILE_OAUTH_BRIDGE_URL;
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -105,17 +160,9 @@ export default function LoginScreen() {
         return;
       }
 
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      const result = await WebBrowser.openAuthSessionAsync(data.url, returnUrl);
       if (result.type === "success" && result.url) {
-        const url = new URL(result.url);
-        const code = url.searchParams.get("code");
-        const errorDescription = url.searchParams.get("error_description");
-        if (code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) dialog.toast(exchangeError.message || "Google sign-in failed", "error");
-        } else if (errorDescription) {
-          dialog.toast(errorDescription, "error");
-        }
+        await completeOAuthSession(result.url);
       }
     } catch (e) {
       dialog.toast(e instanceof Error ? e.message : "Google sign-in failed", "error");
