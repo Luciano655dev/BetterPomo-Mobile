@@ -19,6 +19,8 @@ export interface OfflineSessionState {
   timer_state: TimerState;
   timer_started_at: string | null;
   paused_elapsed_seconds: number | null;
+  focus_seconds: number;
+  focus_started_at: string | null;
   laps: Lap[]; // stopwatch, local-only — laps aren't part of history
   started_at: string; // drives duration_seconds on finish
   updated_at: string;
@@ -52,6 +54,8 @@ export async function createOfflineSession(
     timer_state: "idle",
     timer_started_at: null,
     paused_elapsed_seconds: sessionType === "stopwatch" ? 0 : null,
+    focus_seconds: 0,
+    focus_started_at: null,
     laps: [],
     started_at: now,
     updated_at: now,
@@ -66,6 +70,13 @@ export async function loadOfflineSession(userId: string): Promise<OfflineSession
     if (!raw) return null;
     const parsed = JSON.parse(raw) as OfflineSessionState;
     if (parsed?.v !== 1 || !parsed.id || !Array.isArray(parsed.timers)) return null;
+    parsed.focus_seconds = Math.max(0, Number(parsed.focus_seconds) || 0);
+    if (typeof parsed.focus_started_at !== "string") {
+      const current = parsed.timers[parsed.current_timer_index];
+      parsed.focus_started_at = parsed.timer_state === "running" && current && !isBreakTimer(current.name)
+        ? new Date().toISOString()
+        : null;
+    }
     return parsed;
   } catch {
     return null;
@@ -103,6 +114,43 @@ export function deriveRemaining(state: OfflineSessionState, now = Date.now()): n
   const current = state.timers[state.current_timer_index];
   if (!current) return 0;
   return Math.max(0, current.duration - deriveElapsed(state, now));
+}
+
+function isFocusRunning(state: OfflineSessionState, now: number): boolean {
+  if (state.timer_state !== "running") return false;
+  if (state.session_type === "stopwatch") return true;
+  const current = state.timers[state.current_timer_index];
+  if (!current || isBreakTimer(current.name) || !state.timer_started_at) return false;
+  return new Date(state.timer_started_at).getTime() + current.duration * 1000 > now;
+}
+
+/**
+ * Apply a local timer transition while banking the exact work-only segment.
+ * The dedicated focus_started_at uses real wall time; timer_started_at cannot
+ * because resume rewinds it by paused elapsed time to preserve the countdown.
+ */
+export function applyOfflineSessionUpdate(
+  state: OfflineSessionState,
+  fields: Partial<OfflineSessionState>,
+  now: number = Date.now(),
+): OfflineSessionState {
+  let focusSeconds = Math.max(0, state.focus_seconds ?? 0);
+  if (state.focus_started_at) {
+    let end = now;
+    if (state.session_type === "pomodoro" && state.timer_started_at) {
+      const current = state.timers[state.current_timer_index];
+      if (current) {
+        end = Math.min(end, new Date(state.timer_started_at).getTime() + current.duration * 1000);
+      }
+    }
+    focusSeconds += Math.max(0, end - new Date(state.focus_started_at).getTime()) / 1000;
+  }
+
+  const next = { ...state, ...fields, focus_seconds: focusSeconds };
+  return {
+    ...next,
+    focus_started_at: isFocusRunning(next, now) ? new Date(now).toISOString() : null,
+  };
 }
 
 /** Work → first break, break → first work; same policy as handleTimerFinished

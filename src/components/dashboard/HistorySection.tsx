@@ -146,7 +146,7 @@ export function HistorySection({
               const others = (h.participants ?? []).filter(
                 (p) => p.username !== currentUsername,
               );
-              const focusSec = estimateFocusSec(h.duration_seconds, h.timers_used ?? []);
+              const focusSec = h.focus_seconds ?? estimateFocusSec(h.duration_seconds, h.timers_used ?? []);
               const doneTasks = h.tasks?.filter((t) => t.done).length ?? 0;
 
               return (

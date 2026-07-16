@@ -19,7 +19,6 @@ const PERIODS: { key: Period; label: string }[] = [
 
 function StatCircle({ name, total, active }: { name: string; total: number; active: number }) {
   const { colors } = useTheme();
-  const showActive = active < total && active > 0;
   return (
     <View style={[styles.circle, { borderColor: colors.border, backgroundColor: colors.muted + "33" }]}>
       <Text
@@ -31,11 +30,9 @@ function StatCircle({ name, total, active }: { name: string; total: number; acti
       <Text style={{ fontSize: 18, color: colors.foreground, fontFamily: fonts.sansBold }}>
         {fmtTotal(total)}
       </Text>
-      {showActive && (
-        <Text style={{ fontSize: 9, color: colors.mutedForeground, fontFamily: fonts.sans }}>
-          {fmtTotal(active)} active
-        </Text>
-      )}
+      <Text style={{ fontSize: 9, color: colors.mutedForeground, fontFamily: fonts.sans }}>
+        {fmtTotal(active)} active
+      </Text>
     </View>
   );
 }

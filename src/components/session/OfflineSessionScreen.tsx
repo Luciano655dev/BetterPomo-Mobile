@@ -35,6 +35,7 @@ import {
 import { enqueue } from "@/lib/offline-queue";
 import {
   advanceAfterFinish,
+  applyOfflineSessionUpdate,
   clearOfflineSession,
   deriveElapsed,
   saveOfflineSession,
@@ -83,7 +84,10 @@ export function OfflineSessionScreen({ initialState, userId, username, displayNa
 
   const update = useCallback(
     (fields: Partial<OfflineSessionState>) => {
-      const next = { ...stateRef.current, ...fields, updated_at: new Date().toISOString() };
+      const next = {
+        ...applyOfflineSessionUpdate(stateRef.current, fields),
+        updated_at: new Date().toISOString(),
+      };
       stateRef.current = next;
       setState(next);
       saveOfflineSession(userId, next);
@@ -291,12 +295,14 @@ export function OfflineSessionScreen({ initialState, userId, username, displayNa
     if (endedRef.current) return;
     endedRef.current = true;
     setEndAction(saveToHistory ? "save" : "discard");
-    const s = stateRef.current;
+    const s = applyOfflineSessionUpdate(stateRef.current, {});
+    stateRef.current = s;
     let record: SummaryEntry | null = null;
     if (saveToHistory) {
       const payload = {
         session_name: s.name,
         duration_seconds: Math.max(0, Math.floor((Date.now() - new Date(s.started_at).getTime()) / 1000)),
+        focus_seconds: Math.max(0, Math.floor(s.focus_seconds)),
         timers_used: s.timers.map((t) => ({ name: t.name, duration: t.duration })),
         participants: username ? [{ username, display_name: displayName ?? username }] : [],
         tasks: await readTasks(s.id, userId),
