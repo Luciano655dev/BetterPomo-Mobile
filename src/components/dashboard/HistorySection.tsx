@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { dialog } from "@/components/ui/dialog";
 
@@ -172,7 +172,12 @@ export function HistorySection({
                       </Pressable>
                     </View>
                     <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
-                      <Pressable onPress={() => setSummaryEntry(h)} hitSlop={8}>
+                      <Pressable
+                        onPress={() => setSummaryEntry(h)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open analytics for ${h.session_name}`}
+                      >
                         <Ionicons name="stats-chart-outline" size={15} color={colors.mutedForeground} />
                       </Pressable>
                       {!readOnly && (
@@ -242,8 +247,37 @@ export function HistorySection({
         onRequestClose={() => setSummaryEntry(null)}
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setSummaryEntry(null)}>
-          <Pressable style={{ width: "88%" }} onPress={(e) => e.stopPropagation()}>
-            {summaryEntry && <SessionRecap entry={summaryEntry} />}
+          <Pressable
+            style={[
+              styles.modalSurface,
+              { backgroundColor: colors.background, borderColor: colors.border },
+            ]}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, color: colors.foreground, fontFamily: fonts.sansSemiBold }}>
+                  Session analytics
+                </Text>
+                <Text numberOfLines={1} style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}>
+                  {summaryEntry?.session_name}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setSummaryEntry(null)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Close session analytics"
+              >
+                <Ionicons name="close" size={20} color={colors.foreground} />
+              </Pressable>
+            </View>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalContent}
+            >
+              {summaryEntry && <SessionRecap entry={summaryEntry} />}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -293,5 +327,25 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 24,
+  },
+  modalSurface: {
+    width: "92%",
+    maxHeight: "94%",
+    borderWidth: 1,
+    borderRadius: radius["2xl"],
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  modalContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 18,
   },
 });

@@ -122,6 +122,9 @@ export function PushNotificationManager() {
           if (data.offline) router.push("/offline-session");
           else if (data.session_code) router.push(`/session/${data.session_code}` as Href);
           break;
+        case "session_saved":
+          router.push("/");
+          break;
       }
       void Notifications.clearLastNotificationResponseAsync();
     }

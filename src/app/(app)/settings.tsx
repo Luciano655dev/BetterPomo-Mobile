@@ -1,8 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
+import Constants, { ExecutionEnvironment } from "expo-constants";
+import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
 import {
-  AppState,
   Linking,
   Modal,
   Platform,
@@ -23,14 +26,10 @@ import { Segmented } from "@/components/ui/Segmented";
 import { StackHeader } from "@/components/ui/StackHeader";
 import { api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/billing-flags";
-import { useBilling, useInvalidate, useNotificationPreferences, useProfile, type NotificationPreferences } from "@/lib/hooks";
-import {
-  getNotificationPermissionStatus,
-  registerPushDevice,
-  requestNotificationPermission,
-  setLocalTimerNotificationsEnabled,
-} from "@/lib/notifications";
+import { useBilling, useInvalidate, useProfile } from "@/lib/hooks";
+import { completeOAuthSession, getOAuthRedirects } from "@/lib/oauth";
 import { purchasesAvailable, showManageSubscriptions } from "@/lib/purchases";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/providers/AuthProvider";
 import { useTheme, type ThemePreference } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
@@ -67,54 +66,118 @@ const FAQ: { q: string; a: string }[] = [
 
 export default function SettingsScreen() {
   const { colors, preference, setPreference } = useTheme();
-  const { signOut } = useAuth();
+  const { session, signOut } = useAuth();
   const router = useRouter();
   const { data: profile, mutate } = useProfile();
-  const { data: notificationPreferences, mutate: mutateNotificationPreferences } = useNotificationPreferences();
   const { invalidateProfile } = useInvalidate();
   const [editOpen, setEditOpen] = useState(false);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
-  const [notificationPermission, setNotificationPermission] = useState<string>("undetermined");
+  const [identityProviders, setIdentityProviders] = useState<Set<string> | null>(() => {
+    const identities = session?.user.identities;
+    return identities ? new Set(identities.map((identity) => identity.provider)) : null;
+  });
+  const [connecting, setConnecting] = useState<"apple" | "google" | null>(null);
+  const [appleAvailable, setAppleAvailable] = useState(false);
 
   useEffect(() => {
-    const refreshPermission = () => void getNotificationPermissionStatus().then(setNotificationPermission);
-    refreshPermission();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") refreshPermission();
+    let cancelled = false;
+    supabase.auth.getUserIdentities().then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        setIdentityProviders((current) => current ?? new Set());
+        return;
+      }
+      setIdentityProviders(new Set(data.identities.map((identity) => identity.provider)));
     });
-    return () => subscription.remove();
+
+    if (
+      Platform.OS === "ios" &&
+      Constants.executionEnvironment !== ExecutionEnvironment.StoreClient
+    ) {
+      AppleAuthentication.isAvailableAsync()
+        .then((available) => {
+          if (!cancelled) setAppleAvailable(available);
+        })
+        .catch(() => {
+          if (!cancelled) setAppleAvailable(false);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  async function enableSystemNotifications() {
-    if (notificationPermission === "denied") {
-      await Linking.openSettings();
-      return;
-    }
-    const granted = await requestNotificationPermission();
-    setNotificationPermission(granted ? "granted" : "denied");
-    if (granted) {
-      const registered = await registerPushDevice();
-      dialog.toast(
-        registered ? "This phone is connected for notifications" : "Could not connect this phone. Check your internet and try again.",
-        registered ? "success" : "error",
-      );
-    }
+  async function refreshIdentityProviders() {
+    const { data, error } = await supabase.auth.getUserIdentities();
+    if (error) throw error;
+    const next = new Set(data.identities.map((identity) => identity.provider));
+    setIdentityProviders(next);
+    return next;
   }
 
-  async function toggleNotification(key: keyof NotificationPreferences, enabled: boolean) {
-    const previous = notificationPreferences ?? {
-      timers: true, friends: true, sessions: true, messages: true, account: true,
-    };
-    const next = { ...previous, [key]: enabled };
-    await mutateNotificationPreferences(next, { revalidate: false });
-    if (key === "timers") await setLocalTimerNotificationsEnabled(enabled);
+  function identityErrorMessage(error: unknown) {
+    const message = error instanceof Error ? error.message : "Could not connect that sign-in method";
+    return message.toLowerCase().includes("manual")
+      ? "Account linking is not enabled yet. Please try again after it is enabled."
+      : message;
+  }
+
+  async function connectBrowserIdentity(provider: "apple" | "google") {
+    const { returnUrl, redirectTo } = getOAuthRedirects();
+    const { data, error } = await supabase.auth.linkIdentity({
+      provider,
+      options: { redirectTo, skipBrowserRedirect: true },
+    });
+    if (error || !data.url) throw error ?? new Error(`Could not start ${provider} connection`);
+
+    const result = await WebBrowser.openAuthSessionAsync(data.url, returnUrl);
+    if (result.type !== "success" || !result.url) return false;
+    await completeOAuthSession(result.url);
+    return true;
+  }
+
+  async function connectAppleIdentity() {
+    const rawNonce = Crypto.randomUUID();
+    const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+    const credential = await AppleAuthentication.signInAsync({
+      nonce: hashedNonce,
+      requestedScopes: [AppleAuthentication.AppleAuthenticationScope.EMAIL],
+    });
+    if (!credential.identityToken) throw new Error("Apple did not return an identity token");
+
+    const { error } = await supabase.auth.linkIdentity({
+      provider: "apple",
+      token: credential.identityToken,
+      nonce: rawNonce,
+    });
+    if (error) throw error;
+    return true;
+  }
+
+  async function connectIdentity(provider: "apple" | "google") {
+    setConnecting(provider);
     try {
-      await api.patch("/api/notifications/preferences", { [key]: enabled });
-      await mutateNotificationPreferences();
-    } catch (e) {
-      await mutateNotificationPreferences(previous, { revalidate: false });
-      if (key === "timers") await setLocalTimerNotificationsEnabled(previous.timers);
-      dialog.toast(e instanceof Error ? e.message : "Failed to update notifications", "error");
+      const connected =
+        provider === "apple" && Platform.OS === "ios"
+          ? appleAvailable
+            ? await connectAppleIdentity()
+            : false
+          : await connectBrowserIdentity(provider);
+      if (!connected) {
+        if (provider === "apple" && Platform.OS === "ios" && !appleAvailable) {
+          dialog.toast("Apple connection requires the installed BetterPomo app.", "info");
+        }
+        return;
+      }
+      const providers = await refreshIdentityProviders();
+      if (!providers.has(provider)) throw new Error(`${provider === "apple" ? "Apple" : "Google"} was not connected`);
+      dialog.toast(`${provider === "apple" ? "Apple" : "Google"} connected to your account`, "success");
+    } catch (error) {
+      if ((error as { code?: string }).code === "ERR_REQUEST_CANCELED") return;
+      dialog.toast(identityErrorMessage(error), "error");
+    } finally {
+      setConnecting(null);
     }
   }
 
@@ -128,29 +191,49 @@ export default function SettingsScreen() {
     }
   }
 
-  async function changePassword() {
-    const current = await dialog.prompt({
-      title: "Current password",
-      message: "Enter your current password",
-      placeholder: "Current password",
+  async function managePassword() {
+    if (identityProviders === null) return;
+    const hasPassword = identityProviders.has("email");
+    let current: string | null = null;
+    if (hasPassword) {
+      current = await dialog.prompt({
+        title: "Current password",
+        message: "Enter your current password",
+        placeholder: "Current password",
+        secureTextEntry: true,
+        confirmText: "Next",
+      });
+      if (!current) return;
+    }
+    const next = await dialog.prompt({
+      title: hasPassword ? "New password" : "Set up a password",
+      message: "Use at least 8 characters",
+      placeholder: hasPassword ? "New password" : "Password",
       secureTextEntry: true,
       confirmText: "Next",
-    });
-    if (!current) return;
-    const next = await dialog.prompt({
-      title: "New password",
-      message: "At least 6 characters",
-      placeholder: "New password",
-      secureTextEntry: true,
-      confirmText: "Update",
-      validate: (v) => (v.length < 6 ? "Password must be at least 6 characters" : null),
+      validate: (value) => (value.length < 8 ? "Password must be at least 8 characters" : null),
     });
     if (!next) return;
+    const confirmation = await dialog.prompt({
+      title: "Confirm password",
+      message: "Enter the new password again",
+      placeholder: "Confirm password",
+      secureTextEntry: true,
+      confirmText: hasPassword ? "Update" : "Set password",
+      validate: (value) => (value !== next ? "Passwords don't match" : null),
+    });
+    if (!confirmation) return;
     try {
-      await api.post("/api/profile/password", { currentPassword: current, newPassword: next });
-      dialog.toast("Password updated", "success");
-    } catch (e) {
-      dialog.toast(e instanceof Error ? e.message : "Failed to change password", "error");
+      if (hasPassword) {
+        await api.post("/api/profile/password", { currentPassword: current, newPassword: next });
+        dialog.toast("Password updated", "success");
+      } else {
+        await api.post("/api/profile/password/set", { newPassword: next });
+        setIdentityProviders((providers) => new Set([...(providers ?? []), "email"]));
+        dialog.toast("Password set — you can now sign in with email and password", "success");
+      }
+    } catch (error) {
+      dialog.toast(error instanceof Error ? error.message : "Failed to save password", "error");
     }
   }
 
@@ -260,49 +343,6 @@ export default function SettingsScreen() {
           />
         </Card>
 
-        {/* Notification permission + category controls */}
-        <Card style={{ gap: 12 }}>
-          <View style={styles.rowBetween}>
-            <View style={{ flex: 1 }}>
-              {sectionTitle("Notifications")}
-              <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans, marginTop: 2 }}>
-                {notificationPermission === "granted"
-                  ? `Enabled on this ${Platform.OS === "ios" ? "iPhone" : "device"}`
-                  : `Disabled on this ${Platform.OS === "ios" ? "iPhone" : "device"}`}
-              </Text>
-            </View>
-            {notificationPermission !== "granted" && (
-              <Button
-                title={notificationPermission === "denied" ? "Open Settings" : "Enable"}
-                size="sm"
-                variant="outline"
-                onPress={enableSystemNotifications}
-              />
-            )}
-          </View>
-          {(
-            [
-              ["timers", "Timers", "Pomodoro completion alerts"],
-              ["friends", "Friends", "Friend requests and acceptances"],
-              ["sessions", "Sessions", "Invitations to focus sessions"],
-              ["messages", "Messages", "New messages and group additions"],
-              ["account", "Account", "Important plan and account reminders"],
-            ] as const
-          ).map(([key, label, detail]) => (
-            <View key={key} style={styles.rowBetween}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>{label}</Text>
-                <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}>{detail}</Text>
-              </View>
-              <Switch
-                value={notificationPreferences?.[key] ?? true}
-                onValueChange={(enabled) => toggleNotification(key, enabled)}
-                trackColor={{ true: colors.foreground }}
-              />
-            </View>
-          ))}
-        </Card>
-
         {/* Privacy */}
         <Card style={{ gap: 4 }}>
           {sectionTitle("Privacy")}
@@ -323,17 +363,77 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
+        {/* Connected sign-in methods */}
+        <Card style={{ gap: 12 }}>
+          {sectionTitle("Connected accounts")}
+          <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans, lineHeight: 18 }}>
+            Add another sign-in method to this profile. Connect Apple here while signed in, especially if you use Hide My Email.
+          </Text>
+          {(
+            [
+              ["apple", "Apple", "logo-apple"],
+              ["google", "Google", "logo-google"],
+            ] as const
+          ).map(([provider, label, icon]) => {
+            const connected = identityProviders?.has(provider) ?? false;
+            return (
+              <View key={provider} style={styles.securityRow}>
+                <Ionicons name={icon} size={18} color={colors.mutedForeground} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>{label}</Text>
+                  <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}>
+                    {identityProviders === null ? "Checking…" : connected ? "Connected" : "Not connected"}
+                  </Text>
+                </View>
+                {!connected && (
+                  <Button
+                    title={`Connect ${label}`}
+                    size="sm"
+                    variant="outline"
+                    disabled={identityProviders === null || connecting !== null}
+                    loading={connecting === provider}
+                    onPress={() => connectIdentity(provider)}
+                  />
+                )}
+              </View>
+            );
+          })}
+        </Card>
+
         {/* Account security */}
         <Card style={{ gap: 12 }}>
           {sectionTitle("Account security")}
-          <Pressable onPress={changePassword} style={styles.linkRow}>
-            <Ionicons name="key-outline" size={16} color={colors.mutedForeground} />
-            <Text style={[styles.linkText, { color: colors.foreground }]}>Change password</Text>
-            <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
-          </Pressable>
-          <Pressable onPress={changeEmail} style={styles.linkRow}>
+          <View style={styles.securityRow}>
             <Ionicons name="mail-outline" size={16} color={colors.mutedForeground} />
-            <Text style={[styles.linkText, { color: colors.foreground }]}>Change email</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.linkText, { color: colors.foreground }]}>Email</Text>
+              <Text numberOfLines={1} style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}>
+                {session?.user.email ?? "—"}
+              </Text>
+            </View>
+            <Button title="Change" size="sm" variant="ghost" onPress={changeEmail} />
+          </View>
+          <Pressable
+            onPress={managePassword}
+            disabled={identityProviders === null}
+            accessibilityRole="button"
+            accessibilityLabel={identityProviders?.has("email") ? "Change password" : "Set password"}
+            style={styles.securityRow}
+          >
+            <Ionicons name="key-outline" size={16} color={colors.mutedForeground} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.linkText, { color: colors.foreground }]}>Password</Text>
+              <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}>
+                {identityProviders === null
+                  ? "Checking…"
+                  : identityProviders.has("email")
+                    ? "Change the password you use to sign in"
+                    : "Set one to also sign in with email"}
+              </Text>
+            </View>
+            <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sansMedium }}>
+              {identityProviders?.has("email") ? "Change" : "Set password"}
+            </Text>
             <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
           </Pressable>
         </Card>
@@ -611,6 +711,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, gap: 14, paddingTop: 16, paddingBottom: 40 },
   accountCard: { flexDirection: "row", alignItems: "center", gap: 12 },
   rowBetween: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
+  securityRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 42 },
   linkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 2 },
   linkText: { flex: 1, fontSize: 14, fontFamily: "PlusJakartaSans_500Medium" },
   faqRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10 },

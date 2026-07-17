@@ -30,6 +30,7 @@ import { useInvalidate } from "@/lib/hooks";
 import { readTasks } from "@/lib/notes-storage";
 import {
   cancelTimerEndNotification,
+  presentSessionSavedNotification,
   scheduleTimerEndNotification,
 } from "@/lib/notifications";
 import { enqueue } from "@/lib/offline-queue";
@@ -310,6 +311,7 @@ export function OfflineSessionScreen({ initialState, userId, username, displayNa
       };
       record = { ...payload };
       await enqueue(userId, payload);
+      void presentSessionSavedNotification(payload.session_name, payload.duration_seconds);
     }
     await clearOfflineSession(userId, s.id);
     if (saveToHistory) syncPendingUploads(() => invalidateHistory());

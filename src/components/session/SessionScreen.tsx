@@ -33,6 +33,7 @@ import { useInvalidate } from "@/lib/hooks";
 import { readTasks } from "@/lib/notes-storage";
 import {
   cancelTimerEndNotification,
+  presentSessionSavedNotification,
   scheduleTimerEndNotification,
 } from "@/lib/notifications";
 import { enqueue } from "@/lib/offline-queue";
@@ -544,6 +545,7 @@ export function SessionScreen({
       }).then(() => syncPendingUploads());
       setSummary(record);
     }
+    void presentSessionSavedNotification(record.session_name, durationSeconds);
     invalidateHistory();
   }, [userJoinedAt, userId, invalidateHistory]);
 

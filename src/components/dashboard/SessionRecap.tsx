@@ -140,15 +140,18 @@ export function SessionRecap({ entry }: { entry: SummaryEntry }) {
     try {
       const uri = await capture();
       // Write-only permission — we never read the user's library.
-      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      const perm = await MediaLibrary.requestPermissionsAsync(true, ["photo"]);
       if (!perm.granted) {
         dialog.toast("Photos permission is needed to save.", "error");
         return;
       }
-      await MediaLibrary.saveToLibraryAsync(uri);
+      await MediaLibrary.Asset.create(uri);
       dialog.toast("Saved to Photos", "success");
-    } catch {
-      dialog.toast("Couldn't save the image.", "error");
+    } catch (error) {
+      dialog.toast(
+        error instanceof Error ? `Couldn't save the image: ${error.message}` : "Couldn't save the image.",
+        "error",
+      );
     } finally {
       setBusy(null);
     }

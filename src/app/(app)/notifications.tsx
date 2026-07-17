@@ -1,17 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
+  AppState,
   FlatList,
+  Linking,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
 
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { dialog } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -23,44 +28,65 @@ import {
   useFriendRequests,
   useInvalidate,
   useNotifications,
+  useNotificationPreferences,
   type AppNotification,
+  type NotificationPreferences,
 } from "@/lib/hooks";
+import {
+  getNotificationPermissionStatus,
+  registerPushDevice,
+  requestNotificationPermission,
+  setLocalTimerNotificationsEnabled,
+} from "@/lib/notifications";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
 
-type Tab = "all" | "requests";
+type Tab = "all" | "requests" | "settings";
 
-/** Maps a notification row to display text + destination (port of webapp util). */
-function describeNotification(n: AppNotification): { emoji: string; text: string; href: Href | null } {
+/** Maps a notification row to friendly copy + destination. */
+function describeNotification(n: AppNotification): { emoji: string; title: string; text: string; href: Href | null } {
   const who = n.metadata.display_name ?? n.metadata.username ?? "Someone";
   const username = n.metadata.username ?? "";
   const identity = username && who !== username ? `${who} (@${username})` : who;
-  const emoji = n.metadata.emoji ?? "🔔";
+  const actorEmoji = n.metadata.emoji ?? "🍅";
   switch (n.type) {
     case "friend_request":
-      return { emoji, text: `${identity} sent you a friend request`, href: null }; // → requests tab
+      return {
+        emoji: "🤝",
+        title: "New friend request",
+        text: `${actorEmoji} ${identity} wants to focus with you`,
+        href: null,
+      }; // → requests tab
     case "friend_accept":
-      return { emoji, text: `${identity} accepted your friend request`, href: username ? `/u/${encodeURIComponent(username)}` as Href : null };
+      return {
+        emoji: "🎉",
+        title: "You're focus friends!",
+        text: `${actorEmoji} ${identity} accepted your friend request`,
+        href: username ? `/u/${encodeURIComponent(username)}` as Href : null,
+      };
     case "session_invite":
       return {
-        emoji,
-        text: `${identity} invited you to ${n.metadata.name ?? "a session"}`,
+        emoji: "⏱️",
+        title: "Ready to focus?",
+        text: `${actorEmoji} ${identity} invited you to ${n.metadata.name ?? "a session"}`,
         href: (n.metadata.conversation_id ? `/messages/${n.metadata.conversation_id}` : null) as Href | null,
       };
     case "group_add":
       return {
-        emoji,
-        text: `${identity} added you to ${n.metadata.title || "a group"}`,
+        emoji: "💬",
+        title: "You're in!",
+        text: `${actorEmoji} ${identity} added you to ${n.metadata.title || "a group"}`,
         href: (n.entity_id ? `/messages/${n.entity_id}` : null) as Href | null,
       };
     case "trial_ending":
       return {
         emoji: "✨",
-        text: "Your Pro trial ends in 2 days — your subscription starts then. Manage it anytime in Settings.",
+        title: "Your Pro trial ends soon",
+        text: "Your subscription starts in 2 days. You can manage it anytime in Settings.",
         href: "/settings" as Href,
       };
     default:
-      return { emoji, text: "New notification", href: null };
+      return { emoji: "🔔", title: "New notification", text: "Something new is waiting for you", href: null };
   }
 }
 
@@ -77,7 +103,9 @@ function relativeTime(iso: string): string {
 export default function NotificationsScreen() {
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ tab?: string }>();
-  const [tab, setTab] = useState<Tab>(params.tab === "requests" ? "requests" : "all");
+  const [tab, setTab] = useState<Tab>(
+    params.tab === "requests" || params.tab === "settings" ? params.tab : "all",
+  );
   const { data: reqs } = useFriendRequests();
   const incomingCount = reqs?.incoming.length ?? 0;
 
@@ -89,13 +117,123 @@ export default function NotificationsScreen() {
           options={[
             { value: "all", label: "All" },
             { value: "requests", label: incomingCount > 0 ? `Requests (${incomingCount})` : "Requests" },
+            { value: "settings", label: "Settings" },
           ]}
           value={tab}
           onChange={setTab}
         />
       </View>
-      {tab === "all" ? <AllList onOpenRequests={() => setTab("requests")} /> : <RequestsList />}
+      {tab === "all" ? (
+        <AllList onOpenRequests={() => setTab("requests")} />
+      ) : tab === "requests" ? (
+        <RequestsList />
+      ) : (
+        <NotificationSettings />
+      )}
     </View>
+  );
+}
+
+function NotificationSettings() {
+  const { colors } = useTheme();
+  const { data: preferences, mutate } = useNotificationPreferences();
+  const [permission, setPermission] = useState("undetermined");
+
+  useEffect(() => {
+    const refreshPermission = () => void getNotificationPermissionStatus().then(setPermission);
+    refreshPermission();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshPermission();
+    });
+    return () => subscription.remove();
+  }, []);
+
+  async function enableSystemNotifications() {
+    if (permission === "denied") {
+      await Linking.openSettings();
+      return;
+    }
+    const granted = await requestNotificationPermission();
+    setPermission(granted ? "granted" : "denied");
+    if (!granted) return;
+
+    const registered = await registerPushDevice();
+    dialog.toast(
+      registered
+        ? "This phone is connected for notifications"
+        : "Could not connect this phone. Check your internet and try again.",
+      registered ? "success" : "error",
+    );
+  }
+
+  async function togglePreference(key: keyof NotificationPreferences, enabled: boolean) {
+    const previous = preferences ?? {
+      timers: true,
+      friends: true,
+      sessions: true,
+      messages: true,
+      account: true,
+    };
+    const next = { ...previous, [key]: enabled };
+    await mutate(next, { revalidate: false });
+    if (key === "timers") await setLocalTimerNotificationsEnabled(enabled);
+    try {
+      await api.patch("/api/notifications/preferences", { [key]: enabled });
+      await mutate();
+    } catch (error) {
+      await mutate(previous, { revalidate: false });
+      if (key === "timers") await setLocalTimerNotificationsEnabled(previous.timers);
+      dialog.toast(error instanceof Error ? error.message : "Failed to update notifications", "error");
+    }
+  }
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+      <Card style={{ gap: 14 }}>
+        <View style={styles.preferenceRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontFamily: fonts.sansSemiBold, color: colors.foreground }}>
+              Push notifications
+            </Text>
+            <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans, marginTop: 2 }}>
+              {permission === "granted"
+                ? `Enabled on this ${Platform.OS === "ios" ? "iPhone" : "device"}`
+                : `Disabled on this ${Platform.OS === "ios" ? "iPhone" : "device"}`}
+            </Text>
+          </View>
+          {permission !== "granted" && (
+            <Button
+              title={permission === "denied" ? "Open Settings" : "Enable"}
+              size="sm"
+              variant="outline"
+              onPress={enableSystemNotifications}
+            />
+          )}
+        </View>
+        {(
+          [
+            ["timers", "Timers", "Pomodoro completion alerts"],
+            ["friends", "Friends", "Friend requests and acceptances"],
+            ["sessions", "Sessions", "Invitations to focus sessions"],
+            ["messages", "Messages", "New messages and group additions"],
+            ["account", "Account", "Important plan and account reminders"],
+          ] as const
+        ).map(([key, label, detail]) => (
+          <View key={key} style={styles.preferenceRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>{label}</Text>
+              <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}>{detail}</Text>
+            </View>
+            <Switch
+              value={preferences?.[key] ?? true}
+              onValueChange={(enabled) => togglePreference(key, enabled)}
+              trackColor={{ true: colors.foreground }}
+              accessibilityLabel={`${label} notifications`}
+            />
+          </View>
+        ))}
+      </Card>
+    </ScrollView>
   );
 }
 
@@ -175,7 +313,13 @@ function AllList({ onOpenRequests }: { onOpenRequests: () => void }) {
       }
       ListHeaderComponent={
         unread > 0 ? (
-          <Pressable onPress={markAllRead} style={{ alignSelf: "flex-end", marginBottom: 2 }} hitSlop={8}>
+          <Pressable
+            onPress={markAllRead}
+            style={{ alignSelf: "flex-end", marginBottom: 2 }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Mark all notifications as read"
+          >
             <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sansMedium, textDecorationLine: "underline" }}>
               Mark all read
             </Text>
@@ -184,11 +328,13 @@ function AllList({ onOpenRequests }: { onOpenRequests: () => void }) {
       }
       ListEmptyComponent={<EmptyState emoji="🔔" title="You're all caught up" />}
       renderItem={({ item: n }) => {
-        const { emoji, text } = describeNotification(n);
+        const { emoji, title, text } = describeNotification(n);
         const isUnread = !n.read_at;
         return (
           <Pressable
             onPress={() => open(n)}
+            accessibilityRole="button"
+            accessibilityLabel={`${title}. ${text}`}
             style={({ pressed }) => [
               styles.row,
               {
@@ -198,14 +344,27 @@ function AllList({ onOpenRequests }: { onOpenRequests: () => void }) {
               },
             ]}
           >
-            <Text style={{ fontSize: 22 }}>{emoji}</Text>
+            <View style={[styles.notificationIcon, { backgroundColor: colors.muted }]}>
+              <Text style={{ fontSize: 21 }}>{emoji}</Text>
+            </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text
                 style={{
                   fontSize: 13,
-                  fontFamily: isUnread ? fonts.sansSemiBold : fonts.sans,
+                  fontFamily: fonts.sansSemiBold,
                   color: colors.foreground,
                   lineHeight: 18,
+                }}
+              >
+                {title}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontFamily: fonts.sans,
+                  color: colors.mutedForeground,
+                  lineHeight: 17,
+                  marginTop: 1,
                 }}
               >
                 {text}
@@ -215,7 +374,15 @@ function AllList({ onOpenRequests }: { onOpenRequests: () => void }) {
               </Text>
             </View>
             {isUnread && <View style={[styles.unreadDot, { backgroundColor: colors.destructive }]} />}
-            <Pressable onPress={() => dismiss(n)} hitSlop={8}>
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation();
+                void dismiss(n);
+              }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Dismiss ${title}`}
+            >
               <Ionicons name="close" size={15} color={colors.mutedForeground} />
             </Pressable>
           </Pressable>
@@ -361,6 +528,14 @@ function RequestsList() {
 }
 
 const styles = StyleSheet.create({
+  preferenceRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
+  notificationIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",

@@ -6,14 +6,26 @@ import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import { AppState, Platform } from "react-native";
 import { api } from "./api";
+import { fmtTotal, isBreak } from "./format";
 
 export type PushNotificationData = {
-  type?: "friend_request" | "friend_accept" | "session_invite" | "group_add" | "chat_message" | "trial_ending" | "timer_finished";
+  type?:
+    | "friend_request"
+    | "friend_accept"
+    | "session_invite"
+    | "group_add"
+    | "chat_message"
+    | "trial_ending"
+    | "timer_finished"
+    | "session_saved";
   username?: string;
+  emoji?: string;
   conversation_id?: string;
   entity_id?: string;
   code?: string;
   session_code?: string;
+  session_name?: string;
+  duration_seconds?: number;
   offline?: boolean;
 };
 
@@ -147,15 +159,41 @@ export async function scheduleTimerEndNotification(
     if (!(await ensureNotificationPermission())) return null;
     return await Notifications.scheduleNotificationAsync({
       content: {
-        title: "Pomodoro complete",
-        body: `${timerName} is finished. Time for the next step.`,
+        title: isBreak(timerName) ? "☕ Break complete!" : "🍅 Focus timer complete!",
+        body: `${timerName} is finished. You're ready for the next step ✨`,
         sound: "default",
         data: { ...data, type: "timer_finished" },
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
         seconds: Math.max(1, Math.round(seconds)),
+        channelId: DEFAULT_NOTIFICATION_CHANNEL_ID,
       },
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Celebrate a history save with a mobile-only local notification. */
+export async function presentSessionSavedNotification(
+  sessionName: string,
+  durationSeconds: number,
+): Promise<string | null> {
+  try {
+    if (!(await ensureNotificationPermission())) return null;
+    return await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `🔥 You just finished ${fmtTotal(Math.max(0, durationSeconds))}!`,
+        body: `“${sessionName}” is saved. Share your recap and let everyone see what you accomplished.`,
+        sound: "default",
+        data: {
+          type: "session_saved",
+          session_name: sessionName,
+          duration_seconds: durationSeconds,
+        } satisfies PushNotificationData,
+      },
+      trigger: Platform.OS === "android" ? { channelId: DEFAULT_NOTIFICATION_CHANNEL_ID } : null,
     });
   } catch {
     return null;

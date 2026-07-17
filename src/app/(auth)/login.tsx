@@ -1,5 +1,4 @@
 import * as AppleAuthentication from "expo-apple-authentication";
-import * as AuthSession from "expo-auth-session";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Crypto from "expo-crypto";
 import { Link } from "expo-router";
@@ -24,54 +23,11 @@ import { Input } from "@/components/ui/Input";
 import { Logo } from "@/components/ui/Logo";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
+import { completeOAuthSession, getOAuthRedirects } from "@/lib/oauth";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts } from "@/theme/tokens";
 
 WebBrowser.maybeCompleteAuthSession();
-
-const NATIVE_OAUTH_RETURN_URL = "betterpomo://auth/callback";
-const MOBILE_OAUTH_BRIDGE_URL = "https://app.betterpomo.com/auth/callback?mobile=1";
-
-function getOAuthReturnUrl() {
-  if (Platform.OS === "web") {
-    return AuthSession.makeRedirectUri({ path: "auth/callback" });
-  }
-
-  // Keep this deterministic in development and production builds so Expo's
-  // auth browser can recognize the deep link, close, and return control here.
-  return AuthSession.makeRedirectUri({ native: NATIVE_OAUTH_RETURN_URL });
-}
-
-async function completeOAuthSession(callbackUrl: string) {
-  const url = new URL(callbackUrl);
-  const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
-  const getParam = (name: string) => url.searchParams.get(name) ?? fragment.get(name);
-
-  const errorDescription = getParam("error_description") ?? getParam("error");
-  if (errorDescription) throw new Error(errorDescription);
-
-  const code = getParam("code");
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) throw error;
-    return;
-  }
-
-  // Supabase's PKCE flow returns a code, but accepting token callbacks keeps
-  // older installed builds and provider-specific responses compatible.
-  const accessToken = getParam("access_token");
-  const refreshToken = getParam("refresh_token");
-  if (accessToken && refreshToken) {
-    const { error } = await supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-    });
-    if (error) throw error;
-    return;
-  }
-
-  throw new Error("The sign-in provider did not return a session.");
-}
 
 export default function LoginScreen() {
   const { colors } = useTheme();
@@ -161,12 +117,10 @@ export default function LoginScreen() {
   async function handleGoogleLogin() {
     setGoogleLoading(true);
     try {
-      const returnUrl = getOAuthReturnUrl();
+      const { returnUrl, redirectTo } = getOAuthRedirects();
       // Supabase already allows the web callback. On native, that callback
       // forwards the PKCE code to the app's custom scheme without exchanging it,
       // so the verifier that is stored on this device can finish the session.
-      const redirectTo = Platform.OS === "web" ? returnUrl : MOBILE_OAUTH_BRIDGE_URL;
-
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo, skipBrowserRedirect: true },
