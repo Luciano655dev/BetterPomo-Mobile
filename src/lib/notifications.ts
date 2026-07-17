@@ -11,6 +11,7 @@ export type PushNotificationData = {
   type?: "friend_request" | "friend_accept" | "session_invite" | "group_add" | "chat_message" | "trial_ending" | "timer_finished";
   username?: string;
   conversation_id?: string;
+  entity_id?: string;
   code?: string;
   session_code?: string;
   offline?: boolean;
@@ -18,6 +19,10 @@ export type PushNotificationData = {
 
 const INSTALLATION_ID_KEY = "bp_push_installation_id";
 const TIMER_PREFERENCE_KEY = "bp_notification_timer_enabled";
+export const PUSH_PERMISSION_PROMPTED_KEY = "bp_push_permission_prompted_v1";
+export const DEFAULT_NOTIFICATION_CHANNEL_ID = "default";
+
+let registrationInFlight: Promise<boolean> | null = null;
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
@@ -48,9 +53,24 @@ export async function getNotificationPermissionStatus(): Promise<Notifications.P
   }
 }
 
+/** Android requires a channel before its notification permission prompt. */
+async function configureNotificationChannel(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  await Notifications.setNotificationChannelAsync(DEFAULT_NOTIFICATION_CHANNEL_ID, {
+    name: "BetterPomo notifications",
+    description: "Messages, friend activity, session invitations, and timer alerts",
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: "default",
+    vibrationPattern: [0, 250, 150, 250],
+    enableVibrate: true,
+    showBadge: true,
+  });
+}
+
 /** Trigger Apple's prompt only from an explicit onboarding/settings action. */
 export async function requestNotificationPermission(): Promise<boolean> {
   try {
+    await configureNotificationChannel();
     const current = await Notifications.getPermissionsAsync();
     if (current.status === Notifications.PermissionStatus.GRANTED) return true;
     const requested = await Notifications.requestPermissionsAsync({
@@ -68,9 +88,18 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 }
 
 export async function registerPushDevice(): Promise<boolean> {
+  if (registrationInFlight) return registrationInFlight;
+  registrationInFlight = performPushRegistration().finally(() => {
+    registrationInFlight = null;
+  });
+  return registrationInFlight;
+}
+
+async function performPushRegistration(): Promise<boolean> {
   if (!Device.isDevice || Platform.OS === "web") return false;
   if (!(await ensureNotificationPermission())) return false;
   try {
+    await configureNotificationChannel();
     const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
     if (!projectId) {
       if (__DEV__) console.warn("Push registration skipped: EAS projectId is missing");

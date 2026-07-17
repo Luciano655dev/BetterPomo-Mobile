@@ -13,6 +13,7 @@ import { api } from "@/lib/api";
 import { useInvalidate, useProfile } from "@/lib/hooks";
 import {
   getNotificationPermissionStatus,
+  PUSH_PERMISSION_PROMPTED_KEY,
   registerPushDevice,
   requestNotificationPermission,
 } from "@/lib/notifications";
@@ -265,6 +266,7 @@ export default function OnboardingScreen() {
           confirmText: "Enable notifications",
           cancelText: "Not now",
         });
+        try { await AsyncStorage.setItem(PUSH_PERMISSION_PROMPTED_KEY, "1"); } catch {}
         if (enable && await requestNotificationPermission()) await registerPushDevice();
       }
       if (dest === "create") router.replace("/create");

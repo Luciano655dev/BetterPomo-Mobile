@@ -1,7 +1,7 @@
 import type { Session } from "@supabase/supabase-js";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { BILLING_ENABLED } from "@/lib/billing-flags";
-import { supabase } from "@/lib/supabase";
+import { getPersistedSession, supabase } from "@/lib/supabase";
 import { configurePurchases, logOutPurchases } from "@/lib/purchases";
 import { unregisterPushDevice } from "@/lib/notifications";
 
@@ -18,19 +18,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setIsLoading(false);
-    });
+    let mounted = true;
+    let restoredSession: Session | null = null;
+    let authoritativeAuthEventReceived = false;
+
+    // Never gate the splash screen on a network-backed token refresh. A
+    // previously signed-in user can enter the encrypted, cached offline UI
+    // immediately; Supabase's own initialization refreshes it when possible.
+    getPersistedSession()
+      .then((cached) => {
+        if (authoritativeAuthEventReceived) return;
+        restoredSession = cached;
+        if (!mounted) return;
+        setSession(cached);
+      })
+      .finally(() => {
+        if (mounted) setIsLoading(false);
+      });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (!mounted) return;
+      // An offline initialization may report no freshly validated session.
+      // Keep the encrypted local session until an explicit SIGNED_OUT event;
+      // online API calls remain protected by their server-validated JWTs.
+      if (event === "INITIAL_SESSION" && !newSession && restoredSession) {
+        setIsLoading(false);
+        return;
+      }
+      if (newSession || event === "SIGNED_OUT") {
+        authoritativeAuthEventReceived = true;
+      }
+      restoredSession = newSession;
       setSession(newSession);
       setIsLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // RevenueCat identity follows the Supabase session: appUserID = user id so

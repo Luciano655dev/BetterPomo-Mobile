@@ -1,6 +1,7 @@
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as AuthSession from "expo-auth-session";
 import Constants, { ExecutionEnvironment } from "expo-constants";
+import * as Crypto from "expo-crypto";
 import { Link } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import React, { useEffect, useState } from "react";
@@ -113,7 +114,15 @@ export default function LoginScreen() {
    *  Supabase's Apple provider must list com.betterpomo.app as a client id. */
   async function handleAppleLogin() {
     try {
+      // Apple receives the SHA-256 digest while Supabase receives the original
+      // nonce, allowing the backend to reject replayed identity tokens.
+      const rawNonce = Crypto.randomUUID();
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce,
+      );
       const credential = await AppleAuthentication.signInAsync({
+        nonce: hashedNonce,
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
@@ -126,8 +135,15 @@ export default function LoginScreen() {
       const { error } = await supabase.auth.signInWithIdToken({
         provider: "apple",
         token: credential.identityToken,
+        nonce: rawNonce,
       });
-      if (error) dialog.toast(error.message || "Apple sign-in failed", "error");
+      if (error?.message.toLowerCase().includes("unacceptable audience")) {
+        await dialog.alert({
+          title: "Apple sign-in configuration error",
+          message:
+            "This iOS app identifier is not registered with BetterPomo authentication yet. Please try again after the authentication configuration is updated.",
+        });
+      } else if (error) dialog.toast(error.message || "Apple sign-in failed", "error");
       else if (credential.fullName) {
         const providerName = AppleAuthentication.formatFullName(credential.fullName).trim();
         if (providerName) {

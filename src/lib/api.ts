@@ -1,5 +1,6 @@
 // Port of betterpomo-webapp/lib/backend-api.ts for React Native.
 import { dialog } from "@/components/ui/dialog";
+import * as network from "./network";
 import { supabase } from "./supabase";
 
 // Require the backend URL in release builds. Falling back to localhost in a
@@ -55,6 +56,9 @@ async function apiFetch<T = unknown>(
   options: RequestInit = {},
   isRetry = false,
 ): Promise<T> {
+  // Avoid auth token refreshes and fetches that can sit pending while the
+  // device is known to be offline. SWR retains its last persisted data.
+  if (!(await network.isOnlineAsync())) throw new NetworkError();
   const token = await getToken();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;

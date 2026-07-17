@@ -5,6 +5,7 @@ import {
   AppState,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -91,7 +92,13 @@ export default function SettingsScreen() {
     }
     const granted = await requestNotificationPermission();
     setNotificationPermission(granted ? "granted" : "denied");
-    if (granted) await registerPushDevice();
+    if (granted) {
+      const registered = await registerPushDevice();
+      dialog.toast(
+        registered ? "This phone is connected for notifications" : "Could not connect this phone. Check your internet and try again.",
+        registered ? "success" : "error",
+      );
+    }
   }
 
   async function toggleNotification(key: keyof NotificationPreferences, enabled: boolean) {
@@ -259,7 +266,9 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               {sectionTitle("Notifications")}
               <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans, marginTop: 2 }}>
-                {notificationPermission === "granted" ? "Enabled in iOS" : "Disabled in iOS"}
+                {notificationPermission === "granted"
+                  ? `Enabled on this ${Platform.OS === "ios" ? "iPhone" : "device"}`
+                  : `Disabled on this ${Platform.OS === "ios" ? "iPhone" : "device"}`}
               </Text>
             </View>
             {notificationPermission !== "granted" && (

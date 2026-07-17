@@ -18,7 +18,17 @@ export function SWRProvider({ children }: { children: React.ReactNode }) {
   const [cache, setCache] = useState<Map<string, any> | null>(null);
 
   useEffect(() => {
-    createPersistedCache().then(setCache);
+    let mounted = true;
+    createPersistedCache()
+      .then((persistedCache) => {
+        if (mounted) setCache(persistedCache);
+      })
+      .catch(() => {
+        if (mounted) setCache(new Map());
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   if (!cache) return null;

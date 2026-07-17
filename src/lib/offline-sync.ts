@@ -15,7 +15,7 @@ let syncing = false;
  *  pass their SWR history invalidator — global mutate can't see the app's
  *  custom cache provider). */
 export async function syncPendingUploads(onUploaded?: () => void): Promise<void> {
-  if (syncing || !network.isOnline()) return;
+  if (syncing || !(await network.isOnlineAsync())) return;
   syncing = true;
   try {
     const {

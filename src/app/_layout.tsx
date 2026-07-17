@@ -33,7 +33,7 @@ function RootNavigator() {
   const { colors, scheme } = useTheme();
   const { isLoading } = useAuth();
 
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -42,10 +42,12 @@ function RootNavigator() {
     GeistMono_600SemiBold,
   });
 
-  const ready = fontsLoaded && !isLoading;
+  // A corrupt/unavailable font must not leave the native splash up forever.
+  // The system font fallback is preferable to an app that never renders.
+  const ready = (fontsLoaded || !!fontError) && !isLoading;
 
   useEffect(() => {
-    if (ready) SplashScreen.hideAsync();
+    if (ready) SplashScreen.hideAsync().catch(() => {});
   }, [ready]);
 
   if (!ready) return null;

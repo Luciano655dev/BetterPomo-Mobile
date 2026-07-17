@@ -18,11 +18,22 @@ function apply(state: Network.NetworkState) {
   listeners.forEach((cb) => cb(online));
 }
 
-Network.getNetworkStateAsync().then(apply).catch(() => null);
+const initialSnapshot = Network.getNetworkStateAsync()
+  .then((state) => {
+    apply(state);
+    return online;
+  })
+  .catch(() => online);
 Network.addNetworkStateListener(apply);
 
 /** Current connectivity snapshot (synchronous). */
 export function isOnline(): boolean {
+  return online;
+}
+
+/** Wait for Expo's first local connectivity snapshot before starting IO. */
+export async function isOnlineAsync(): Promise<boolean> {
+  await initialSnapshot;
   return online;
 }
 

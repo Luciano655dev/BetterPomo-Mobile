@@ -4,11 +4,13 @@ import "react-native-get-random-values";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type Session } from "@supabase/supabase-js";
 import { AppState } from "react-native";
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+const AUTH_STORAGE_KEY = `sb-${projectRef}-auth-token`;
 
 // Store the auth session in the device keychain/keystore (encrypted at rest)
 // instead of plain AsyncStorage. SecureStore rejects values over ~2KB and the
@@ -74,9 +76,36 @@ const secureStorage = {
   },
 };
 
+/**
+ * Read the encrypted on-device session without asking Supabase to refresh it.
+ * `auth.getSession()` refreshes expired access tokens and can therefore block
+ * app startup when there is no network. The cached session is used only to
+ * unlock this device's offline UI; every server request still validates the
+ * access token normally.
+ */
+export async function getPersistedSession(): Promise<Session | null> {
+  try {
+    const raw = await secureStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<Session>;
+    if (
+      typeof value.access_token !== "string" ||
+      typeof value.refresh_token !== "string" ||
+      !value.user ||
+      typeof value.user.id !== "string"
+    ) {
+      return null;
+    }
+    return value as Session;
+  } catch {
+    return null;
+  }
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: secureStorage,
+    storageKey: AUTH_STORAGE_KEY,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

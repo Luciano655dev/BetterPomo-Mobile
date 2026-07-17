@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.betterpomo.app",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "icon": {
