@@ -573,10 +573,11 @@ export function SessionScreen({
     sessionEndedRef.current = true;
     if (saveToHistory) await doSaveHistoryRef.current();
     try {
-      await api.patch(`/api/sessions/${session.id}/participants/me`, {
+      const savedHistory = await api.patch<SummaryEntry | null>(`/api/sessions/${session.id}/participants/me`, {
         left_at: new Date().toISOString(),
         save_history: saveToHistory,
       });
+      if (savedHistory) setSummary(savedHistory);
     } catch {
       sessionEndedRef.current = false;
       setLeaveAction(null);

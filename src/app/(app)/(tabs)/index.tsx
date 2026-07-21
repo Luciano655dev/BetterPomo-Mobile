@@ -12,7 +12,7 @@ import { TimerStatsSection } from "@/components/dashboard/TimerStatsSection";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Screen } from "@/components/ui/Screen";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { useHistory, useInvalidate, useNotifications, useProfile } from "@/lib/hooks";
+import { useHistory, useHistoryAnalytics, useInvalidate, useNotifications, useProfile } from "@/lib/hooks";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
 
@@ -60,6 +60,12 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { data: profile, isLoading: profileLoading, error: profileError, mutate: mutateProfile } = useProfile();
   const { data: history, isLoading: historyLoading, error: historyError, mutate: mutateHistory } = useHistory();
+  const {
+    data: analyticsHistory,
+    isLoading: analyticsLoading,
+    error: analyticsError,
+    mutate: mutateAnalytics,
+  } = useHistoryAnalytics();
   const { invalidateHistory } = useInvalidate();
 
   // Tabs stay mounted in expo-router, so returning to Home doesn't remount and
@@ -86,14 +92,14 @@ export default function DashboardScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([mutateProfile(), mutateHistory()]);
+    await Promise.all([mutateProfile(), mutateHistory(), mutateAnalytics()]);
     setRefreshing(false);
-  }, [mutateProfile, mutateHistory]);
+  }, [mutateProfile, mutateHistory, mutateAnalytics]);
 
-  const loading = profileLoading || historyLoading;
+  const loading = profileLoading || historyLoading || analyticsLoading;
   // A failed load with nothing cached — show a retry instead of a misleading
   // "no history yet" empty state.
-  const showError = (profileError || historyError) && !profile && !history;
+  const showError = (profileError || historyError || analyticsError) && !profile && !history && !analyticsHistory;
 
   return (
     <Screen
@@ -149,7 +155,7 @@ export default function DashboardScreen() {
           </View>
         ) : (
           <>
-            <TimerStatsSection history={(history ?? []) as never} />
+            <TimerStatsSection history={analyticsHistory ?? []} />
 
             <View>
               <Text

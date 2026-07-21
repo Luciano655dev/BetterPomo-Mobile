@@ -84,6 +84,14 @@ export interface HistoryEntry {
   tasks?: { text: string; done: boolean }[] | null;
 }
 
+export interface AnalyticsHistoryEntry {
+  session_name: string;
+  timers_used: { name: string; duration: number }[] | null;
+  duration_seconds: number | null;
+  focus_seconds?: number | null;
+  completed_at: string;
+}
+
 /** GET /api/sessions/mine/active — the caller's running background session. */
 export interface MyActiveSession {
   joined_at: string;
@@ -163,6 +171,14 @@ export function useMyActiveSession() {
 
 export function useHistory(limit = 50, offset = 0) {
   return useSWR<HistoryEntry[]>(`/api/history?limit=${limit}&offset=${offset}`, fetcher, {
+    revalidateOnFocus: true,
+    dedupingInterval: 30_000,
+    refreshInterval: 60_000,
+  });
+}
+
+export function useHistoryAnalytics() {
+  return useSWR<AnalyticsHistoryEntry[]>("/api/history/analytics", fetcher, {
     revalidateOnFocus: true,
     dedupingInterval: 30_000,
     refreshInterval: 60_000,
