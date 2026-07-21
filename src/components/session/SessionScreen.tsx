@@ -50,6 +50,7 @@ import {
 import { stopAllAmbient } from "@/lib/session-sounds";
 import { playTimerEndSound } from "@/lib/sound";
 import { supabase } from "@/lib/supabase";
+import { useSessionChat } from "@/lib/use-session-chat";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
 
@@ -82,6 +83,7 @@ export function SessionScreen({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { invalidateHistory, invalidateSessions } = useInvalidate();
+  const { messages: chatMessages, sendMessage: sendChatMessage } = useSessionChat(initialSession.id);
 
   const [session, setSession] = useState(initialSession);
   const [timers, setTimers] = useState(initialTimers);
@@ -995,7 +997,8 @@ export function SessionScreen({
             <View style={{ flex: 1, minHeight: 0 }}>
               {tab === "chat" && (
             <ChatPanel
-              sessionId={session.id}
+              messages={chatMessages}
+              onSendMessage={sendChatMessage}
               userId={userId}
               userEmoji={userProfile.emoji}
               onOpenUser={(u) => router.push(`/u/${encodeURIComponent(u)}`)}

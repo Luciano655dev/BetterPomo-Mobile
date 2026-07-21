@@ -1,64 +1,30 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { api } from "@/lib/api";
-import { uniqueChannel } from "@/lib/realtime";
 import type { SessionChatMessage } from "@/lib/session-types";
-import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
 
 interface ChatPanelProps {
-  sessionId: string;
+  messages: SessionChatMessage[];
+  onSendMessage: (content: string) => Promise<void>;
   userId: string;
   userEmoji?: string;
   onOpenUser?: (username: string) => void;
 }
 
-export function ChatPanel({ sessionId, userId, userEmoji = "🍅", onOpenUser }: ChatPanelProps) {
+export function ChatPanel({
+  messages,
+  onSendMessage,
+  userId,
+  userEmoji = "🍅",
+  onOpenUser,
+}: ChatPanelProps) {
   const { colors } = useTheme();
-  const [messages, setMessages] = useState<SessionChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList>(null);
-
-  useEffect(() => {
-    let active = true;
-    const load = () =>
-      api
-        .get<SessionChatMessage[]>(`/api/sessions/${sessionId}/messages`)
-        .then((data) => {
-          if (active) setMessages(data ?? []);
-        })
-        .catch(() => null);
-    load();
-
-    const channel = uniqueChannel(supabase, `chat:${sessionId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "chat_messages", filter: `session_id=eq.${sessionId}` },
-        async (payload) => {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("username, display_name, emoji")
-            .eq("id", payload.new.user_id)
-            .single();
-          if (!active) return;
-          setMessages((prev) =>
-            prev.some((m) => m.id === payload.new.id)
-              ? prev
-              : [...prev, { ...(payload.new as SessionChatMessage), profiles: profile }],
-          );
-        },
-      )
-      .subscribe();
-
-    return () => {
-      active = false;
-      supabase.removeChannel(channel);
-    };
-  }, [sessionId]);
 
   async function sendMessage() {
     const content = input.trim();
@@ -66,11 +32,7 @@ export function ChatPanel({ sessionId, userId, userEmoji = "🍅", onOpenUser }:
     setSending(true);
     setInput("");
     try {
-      const saved = await api.post<SessionChatMessage>(`/api/sessions/${sessionId}/messages`, {
-        content,
-      });
-      // Realtime may not echo our own insert before the next fetch — add locally.
-      setMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
+      await onSendMessage(content);
     } catch {
       setInput(content);
     } finally {
