@@ -187,6 +187,7 @@ function DialogModal({ state, onClose }: { state: ModalState; onClose: () => voi
   const insets = useSafeAreaInsets();
   const [value, setValue] = useState(state.kind === "prompt" ? (state.opts.defaultValue ?? "") : "");
   const [error, setError] = useState<string | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const styles = makeStyles(colors);
 
   // Action sheets slide up from the bottom (native convention + thumb-reachable);
@@ -263,27 +264,45 @@ function DialogModal({ state, onClose }: { state: ModalState; onClose: () => voi
 
                 {state.kind === "prompt" && (
                   <>
-                    <TextInput
-                      value={value}
-                      onChangeText={(t) => {
-                        setValue(t);
-                        if (error) setError(null);
-                      }}
-                      placeholder={state.opts.placeholder}
-                      placeholderTextColor={colors.mutedForeground}
-                      secureTextEntry={state.opts.secureTextEntry}
-                      keyboardType={state.opts.keyboardType}
-                      autoCapitalize={state.opts.autoCapitalize ?? "sentences"}
-                      autoCorrect={false}
-                      autoFocus
-                      multiline={state.opts.multiline}
-                      onSubmitEditing={state.opts.multiline ? undefined : submitPrompt}
-                      style={[
-                        styles.input,
-                        { borderColor: error ? colors.destructive : colors.border },
-                        state.opts.multiline && styles.inputMultiline,
-                      ]}
-                    />
+                    <View style={styles.promptInputShell}>
+                      <TextInput
+                        value={value}
+                        onChangeText={(t) => {
+                          setValue(t);
+                          if (error) setError(null);
+                        }}
+                        placeholder={state.opts.placeholder}
+                        placeholderTextColor={colors.mutedForeground}
+                        secureTextEntry={state.opts.secureTextEntry && !passwordVisible}
+                        keyboardType={state.opts.keyboardType}
+                        autoCapitalize={state.opts.autoCapitalize ?? "sentences"}
+                        autoCorrect={false}
+                        autoFocus
+                        multiline={state.opts.multiline}
+                        onSubmitEditing={state.opts.multiline ? undefined : submitPrompt}
+                        style={[
+                          styles.input,
+                          state.opts.secureTextEntry && styles.inputSecure,
+                          { borderColor: error ? colors.destructive : colors.border },
+                          state.opts.multiline && styles.inputMultiline,
+                        ]}
+                      />
+                      {state.opts.secureTextEntry ? (
+                        <Pressable
+                          onPress={() => setPasswordVisible((visible) => !visible)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
+                          style={styles.passwordToggle}
+                        >
+                          <Ionicons
+                            name={passwordVisible ? "eye-off-outline" : "eye-outline"}
+                            size={20}
+                            color={colors.mutedForeground}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
                     {error ? <Text style={styles.errorText}>{error}</Text> : null}
                   </>
                 )}
@@ -548,6 +567,7 @@ function makeStyles(colors: ThemeTokens) {
     body: { padding: 20, gap: 10 },
     title: { fontSize: 17, fontFamily: fonts.sansBold, color: colors.foreground },
     message: { fontSize: 14, lineHeight: 20, fontFamily: fonts.sans, color: colors.mutedForeground },
+    promptInputShell: { position: "relative" },
     input: {
       marginTop: 4,
       height: 46,
@@ -558,6 +578,16 @@ function makeStyles(colors: ThemeTokens) {
       fontFamily: fonts.sans,
       color: colors.foreground,
       backgroundColor: colors.background,
+    },
+    inputSecure: { paddingRight: 48 },
+    passwordToggle: {
+      position: "absolute",
+      right: 0,
+      top: 4,
+      width: 46,
+      height: 46,
+      alignItems: "center",
+      justifyContent: "center",
     },
     inputMultiline: { height: 96, paddingTop: 12, textAlignVertical: "top" },
     errorText: { fontSize: 12, color: colors.destructive, fontFamily: fonts.sans },

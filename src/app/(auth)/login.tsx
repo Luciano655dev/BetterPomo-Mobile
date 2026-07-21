@@ -22,21 +22,26 @@ import { dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/Input";
 import { Logo } from "@/components/ui/Logo";
 import { supabase } from "@/lib/supabase";
-import { api } from "@/lib/api";
+import { api, API_URL } from "@/lib/api";
 import { completeOAuthSession, getOAuthRedirects } from "@/lib/oauth";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts } from "@/theme/tokens";
 
 WebBrowser.maybeCompleteAuthSession();
 
+type AuthSession = { access_token: string; refresh_token: string };
+
 export default function LoginScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   // Hide the Apple button in Expo Go: its binary doesn't register the native
   // button view (RN renders an "Unimplemented component" placeholder), and the
@@ -53,16 +58,98 @@ export default function LoginScreen() {
       .catch(() => setAppleAvailable(false));
   }, []);
 
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((value) => value - 1), 1_000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  async function finishLogin(session: AuthSession) {
+    const { error } = await supabase.auth.setSession(session);
+    if (error) throw new Error(error.message);
+  }
+
   async function handleEmailLogin() {
-    if (!email.trim() || !password) return;
+    if (!identifier.trim() || !password) return;
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    setLoading(false);
-    if (error) dialog.toast(error.message || "Sign in failed", "error");
-    // Success: AuthProvider's listener flips session → (auth) layout redirects.
+    try {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: identifier.trim().toLowerCase(), password }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (json.code === "email_not_confirmed") {
+          setIdentifier((value) => value.trim().toLowerCase());
+          setConfirmEmail(true);
+          setVerificationCode("");
+          setResendCooldown(60);
+          dialog.toast(
+            json.verification_sent
+              ? "We sent a new confirmation code"
+              : "Confirm your email to sign in. You can request another code shortly.",
+            "info",
+          );
+          return;
+        }
+        throw new Error(json.error ?? "Sign in failed");
+      }
+      const session = json.data?.session as AuthSession | null;
+      if (!session) throw new Error("Sign in succeeded, but no session was returned");
+      await finishLogin(session);
+      // AuthProvider's listener flips session → (auth) layout redirects.
+    } catch (error) {
+      dialog.toast(error instanceof Error ? error.message : "Sign in failed", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyEmail() {
+    if (!/^\d{6}$/.test(verificationCode)) {
+      dialog.toast("Enter the 6-digit code from your email", "error");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/verify-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier, token: verificationCode }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not confirm your email");
+      const session = json.data?.session as AuthSession | null;
+      if (!session) throw new Error("Email confirmed, but no session was returned");
+      dialog.toast("Email confirmed — welcome to BetterPomo!", "success");
+      await finishLogin(session);
+    } catch (error) {
+      dialog.toast(error instanceof Error ? error.message : "Could not confirm your email", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendCode() {
+    if (resendCooldown > 0) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/resend-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not resend the code");
+      setVerificationCode("");
+      setResendCooldown(60);
+      dialog.toast("A new confirmation code is on its way", "success");
+    } catch (error) {
+      dialog.toast(error instanceof Error ? error.message : "Could not resend the code", "error");
+    } finally {
+      setLoading(false);
+    }
   }
 
   /** Native Sign in with Apple (iOS only). Required by App Store Guideline
@@ -161,79 +248,125 @@ export default function LoginScreen() {
           <Text
             style={[styles.subtitle, { color: colors.mutedForeground, fontFamily: fonts.sans }]}
           >
-            Sign in to your account
+            {confirmEmail ? `Enter the code sent to the email linked to ${identifier}` : "Sign in to your account"}
           </Text>
         </View>
 
         <Card style={styles.card}>
-          {/* Apple's HIG requires their own button component, shown with at
-              least equal prominence to other third-party logins — so it sits
-              first. iOS only; Android keeps Google + email. */}
-          {appleAvailable && (
-            <AppleAuthentication.AppleAuthenticationButton
-              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-              cornerRadius={10}
-              style={styles.appleButton}
-              onPress={handleAppleLogin}
-            />
+          {confirmEmail ? (
+            <>
+              <Input
+                label="Confirmation code"
+                placeholder="000000"
+                value={verificationCode}
+                onChangeText={(value) => setVerificationCode(value.replace(/\D/g, "").slice(0, 6))}
+                keyboardType="number-pad"
+                autoComplete="one-time-code"
+                textContentType="oneTimeCode"
+                maxLength={6}
+                autoFocus
+                style={styles.codeInput}
+                onSubmitEditing={handleVerifyEmail}
+              />
+              <Button
+                title="Confirm email & sign in"
+                onPress={handleVerifyEmail}
+                loading={loading}
+                disabled={verificationCode.length !== 6}
+              />
+              <View style={styles.codeActions}>
+                <Button
+                  title="Back to sign in"
+                  variant="ghost"
+                  size="sm"
+                  disabled={loading}
+                  onPress={() => {
+                    setConfirmEmail(false);
+                    setVerificationCode("");
+                  }}
+                />
+                <Button
+                  title={resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
+                  variant="ghost"
+                  size="sm"
+                  disabled={loading || resendCooldown > 0}
+                  onPress={handleResendCode}
+                />
+              </View>
+            </>
+          ) : (
+            <>
+              {/* Apple's HIG requires their own button component, shown with at
+                  least equal prominence to other third-party logins — so it sits
+                  first. iOS only; Android keeps Google + email. */}
+              {appleAvailable && (
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                  cornerRadius={10}
+                  style={styles.appleButton}
+                  onPress={handleAppleLogin}
+                />
+              )}
+              <Button
+                title="Continue with Google"
+                variant="outline"
+                onPress={handleGoogleLogin}
+                loading={googleLoading}
+                icon={<Text style={styles.googleG}>G</Text>}
+              />
+
+              <View style={styles.dividerRow}>
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                <Text
+                  style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: fonts.sans }}
+                >
+                  or
+                </Text>
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+              </View>
+
+              <Input
+                label="Email or username"
+                placeholder="you@example.com or yourname"
+                value={identifier}
+                onChangeText={setIdentifier}
+                autoCapitalize="none"
+                autoComplete="username"
+              />
+              <Input
+                label="Password"
+                placeholder="••••••••"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoComplete="password"
+                onSubmitEditing={handleEmailLogin}
+              />
+              <Link
+                href="/forgot-password"
+                style={{
+                  fontSize: 12,
+                  alignSelf: "flex-end",
+                  color: colors.mutedForeground,
+                  fontFamily: fonts.sansMedium,
+                }}
+              >
+                Forgot password?
+              </Link>
+              <Button title="Sign in" onPress={handleEmailLogin} loading={loading} />
+            </>
           )}
-          <Button
-            title="Continue with Google"
-            variant="outline"
-            onPress={handleGoogleLogin}
-            loading={googleLoading}
-            icon={<Text style={styles.googleG}>G</Text>}
-          />
-
-          <View style={styles.dividerRow}>
-            <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            <Text
-              style={{ color: colors.mutedForeground, fontSize: 12, fontFamily: fonts.sans }}
-            >
-              or
-            </Text>
-            <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          </View>
-
-          <Input
-            label="Email"
-            placeholder="you@example.com"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
-          />
-          <Input
-            label="Password"
-            placeholder="••••••••"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoComplete="password"
-            onSubmitEditing={handleEmailLogin}
-          />
-          <Link
-            href="/forgot-password"
-            style={{
-              fontSize: 12,
-              alignSelf: "flex-end",
-              color: colors.mutedForeground,
-              fontFamily: fonts.sansMedium,
-            }}
-          >
-            Forgot password?
-          </Link>
-          <Button title="Sign in" onPress={handleEmailLogin} loading={loading} />
         </Card>
 
-        <Text style={[styles.footer, { color: colors.mutedForeground, fontFamily: fonts.sans }]}>
-          Don&apos;t have an account?{" "}
-          <Link href="/register" style={{ color: colors.foreground, fontFamily: fonts.sansSemiBold }}>
-            Create one
-          </Link>
-        </Text>
+        {!confirmEmail ? (
+          <Text style={[styles.footer, { color: colors.mutedForeground, fontFamily: fonts.sans }]}>
+            Don&apos;t have an account?{" "}
+            <Link href="/register" style={{ color: colors.foreground, fontFamily: fonts.sansSemiBold }}>
+              Create one
+            </Link>
+          </Text>
+        ) : null}
 
         <View style={styles.legalRow}>
           <Pressable onPress={() => Linking.openURL("https://betterpomo.com/terms")} hitSlop={8}>
@@ -265,6 +398,8 @@ const styles = StyleSheet.create({
   divider: { flex: 1, height: StyleSheet.hairlineWidth },
   googleG: { fontSize: 16, fontWeight: "700", color: "#4285F4" },
   appleButton: { height: 44, width: "100%" },
+  codeInput: { fontSize: 28, letterSpacing: 10, textAlign: "center", height: 58 },
+  codeActions: { flexDirection: "row", justifyContent: "space-between" },
   footer: { fontSize: 13, textAlign: "center", lineHeight: 18 },
   legalRow: {
     flexDirection: "row",
