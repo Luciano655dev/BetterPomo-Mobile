@@ -32,6 +32,11 @@ type Entry = HistoryEntry & {
   participants: { username: string; display_name?: string }[] | null;
 };
 
+function dateFromLocalKey(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 export function HistorySection({
   history,
   currentUsername,
@@ -42,12 +47,19 @@ export function HistorySection({
   const { colors } = useTheme();
   const { invalidateHistory } = useInvalidate();
   const [summaryEntry, setSummaryEntry] = useState<SummaryEntry | null>(null);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
 
   const entries = history as Entry[];
+  const filteredEntries = useMemo(
+    () => selectedDateKey
+      ? entries.filter((entry) => localDateKey(new Date(entry.completed_at)) === selectedDateKey)
+      : entries,
+    [entries, selectedDateKey],
+  );
 
   const dateGroups = useMemo(() => {
     const map = new Map<string, Entry[]>();
-    for (const h of [...entries].sort(
+    for (const h of [...filteredEntries].sort(
       (a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime(),
     )) {
       const k = localDateKey(new Date(h.completed_at));
@@ -55,7 +67,20 @@ export function HistorySection({
       map.get(k)!.push(h);
     }
     return Array.from(map.entries());
-  }, [entries]);
+  }, [filteredEntries]);
+
+  const selectedDateLabel = selectedDateKey
+    ? dateFromLocalKey(selectedDateKey).toLocaleDateString(undefined, {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
+
+  function selectDate(dateKey: string) {
+    setSelectedDateKey((current) => current === dateKey ? null : dateKey);
+  }
 
   async function startRename(h: Entry) {
     const name = await dialog.prompt({
@@ -121,7 +146,51 @@ export function HistorySection({
 
   return (
     <View style={{ gap: 24 }}>
-      {showCalendar && <ActivityCalendar history={entries} />}
+      {showCalendar && (
+        <ActivityCalendar
+          history={entries}
+          selectedDateKey={selectedDateKey}
+          onSelectDate={selectDate}
+        />
+      )}
+
+      {selectedDateKey && (
+        <View
+          style={[
+            styles.selectedDate,
+            { backgroundColor: colors.muted, borderColor: colors.border },
+          ]}
+        >
+          <Text
+            numberOfLines={2}
+            style={{ flex: 1, fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}
+          >
+            Showing sessions from{" "}
+            <Text style={{ color: colors.foreground, fontFamily: fonts.sansMedium }}>
+              {selectedDateLabel}
+            </Text>
+          </Text>
+          <Pressable
+            onPress={() => selectDate(selectedDateKey)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Clear selected date"
+          >
+            <Ionicons name="close" size={18} color={colors.mutedForeground} />
+          </Pressable>
+        </View>
+      )}
+
+      {selectedDateKey && dateGroups.length === 0 && (
+        <View style={[styles.emptyDay, { borderColor: colors.border }]}>
+          <Text style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>
+            No sessions on this day
+          </Text>
+          <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: fonts.sans }}>
+            Tap the selected day again to show your full history.
+          </Text>
+        </View>
+      )}
 
       {dateGroups.map(([dateKey, group]) => (
         <View key={dateKey}>
@@ -293,6 +362,24 @@ const styles = StyleSheet.create({
     paddingVertical: 36,
     alignItems: "center",
     gap: 4,
+  },
+  emptyDay: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderRadius: radius.xl,
+    paddingVertical: 28,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    gap: 4,
+  },
+  selectedDate: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
   dateRow: {
     flexDirection: "row",
