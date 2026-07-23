@@ -43,7 +43,7 @@ export function ProfileView({ username }: { username: string }) {
   const { data: history, mutate: mutateHistory } = useUserHistory(username);
   const { data: activeSessionData } = useUserActiveSession(username);
   const { data: friendsData } = useUserFriends(username);
-  const activeSession = activeSessionData?.session_name ?? null;
+  const isInSession = activeSessionData?.in_session ?? false;
   const friendCount = friendsData?.count ?? 0;
 
   const [viewerId, setViewerId] = useState<string | null>(null);
@@ -128,7 +128,7 @@ export function ProfileView({ username }: { username: string }) {
               <Text style={{ fontSize: 22, fontFamily: fonts.sansBold, color: colors.foreground }}>
                 {profile.display_name}
               </Text>
-              {activeSession && (
+              {isInSession && (
                 <View style={styles.liveBadge}>
                   <View style={styles.liveDot} />
                   <Text style={{ fontSize: 11, color: "#059669", fontFamily: fonts.sansMedium }}>

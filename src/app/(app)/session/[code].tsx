@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SessionScreen } from "@/components/session/SessionScreen";
 import { Button } from "@/components/ui/Button";
+import { DialogProvider } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/Input";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -41,6 +42,14 @@ interface JoinedResponse {
 }
 
 export default function SessionRoute() {
+  return (
+    <DialogProvider priority={1}>
+      <SessionRouteContent />
+    </DialogProvider>
+  );
+}
+
+function SessionRouteContent() {
   const { code: rawCode } = useLocalSearchParams<{ code: string }>();
   const code = (rawCode ?? "").toUpperCase();
   const { colors } = useTheme();

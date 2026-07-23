@@ -26,11 +26,13 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { api } from "@/lib/api";
 import {
   useFriendRequests,
+  useGroupInvitations,
   useInvalidate,
   useNotifications,
   useNotificationPreferences,
   type AppNotification,
   type NotificationPreferences,
+  type PendingGroupInvitation,
 } from "@/lib/hooks";
 import {
   getNotificationPermissionStatus,
@@ -41,7 +43,7 @@ import {
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
 
-type Tab = "all" | "requests" | "settings";
+type Tab = "all" | "requests" | "invites" | "settings";
 
 /** Maps a notification row to friendly copy + destination. */
 function describeNotification(n: AppNotification): { emoji: string; title: string; text: string; href: Href | null } {
@@ -78,6 +80,13 @@ function describeNotification(n: AppNotification): { emoji: string; title: strin
         text: `${actorEmoji} ${identity} added you to ${n.metadata.title || "a group"}`,
         href: (n.entity_id ? `/messages/${n.entity_id}` : null) as Href | null,
       };
+    case "group_invite":
+      return {
+        emoji: "👥",
+        title: "Group invitation",
+        text: `${actorEmoji} ${identity} invited you to ${n.metadata.title || "a group"}`,
+        href: null,
+      };
     case "trial_ending":
       return {
         emoji: "✨",
@@ -104,10 +113,12 @@ export default function NotificationsScreen() {
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ tab?: string }>();
   const [tab, setTab] = useState<Tab>(
-    params.tab === "requests" || params.tab === "settings" ? params.tab : "all",
+    params.tab === "requests" || params.tab === "invites" || params.tab === "settings" ? params.tab : "all",
   );
   const { data: reqs } = useFriendRequests();
+  const { data: invitations } = useGroupInvitations();
   const incomingCount = reqs?.incoming.length ?? 0;
+  const invitationCount = invitations?.length ?? 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -117,6 +128,7 @@ export default function NotificationsScreen() {
           options={[
             { value: "all", label: "All" },
             { value: "requests", label: incomingCount > 0 ? `Requests (${incomingCount})` : "Requests" },
+            { value: "invites", label: invitationCount > 0 ? `Invites (${invitationCount})` : "Invites" },
             { value: "settings", label: "Settings" },
           ]}
           value={tab}
@@ -127,10 +139,120 @@ export default function NotificationsScreen() {
         <AllList onOpenRequests={() => setTab("requests")} />
       ) : tab === "requests" ? (
         <RequestsList />
+      ) : tab === "invites" ? (
+        <GroupInvitesList />
       ) : (
         <NotificationSettings />
       )}
     </View>
+  );
+}
+
+function GroupInvitesList() {
+  const { colors } = useTheme();
+  const router = useRouter();
+  const { data: invitations, isLoading, error, mutate } = useGroupInvitations();
+  const { invalidateChat, invalidateNotifications } = useInvalidate();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function respond(invitation: PendingGroupInvitation, accept: boolean) {
+    if (busyId) return;
+    setBusyId(invitation.id);
+    try {
+      const result = await api.post<{ conversation_id: string }>(
+        `/api/chat/group-invitations/${invitation.id}/${accept ? "accept" : "decline"}`,
+      );
+      await mutate();
+      invalidateChat();
+      invalidateNotifications();
+      if (accept) router.push(`/messages/${result.conversation_id}`);
+      else dialog.toast("Invitation declined", "success");
+    } catch (cause) {
+      dialog.toast(cause instanceof Error ? cause.message : "Could not update the invitation", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (isLoading && !invitations) {
+    return (
+      <View style={{ padding: 20, gap: 10 }}>
+        {[0, 1, 2].map((value) => <Skeleton key={value} height={78} round={radius.xl} />)}
+      </View>
+    );
+  }
+
+  if (error && !invitations) {
+    return (
+      <ErrorState
+        title="Couldn't load group invitations"
+        subtitle="Check your connection and try again."
+        onRetry={() => mutate()}
+      />
+    );
+  }
+
+  return (
+    <FlatList
+      data={invitations ?? []}
+      keyExtractor={(invitation) => invitation.id}
+      contentContainerStyle={{ padding: 20, gap: 10, paddingBottom: 40 }}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={async () => {
+            setRefreshing(true);
+            await mutate();
+            setRefreshing(false);
+          }}
+        />
+      }
+      ListEmptyComponent={
+        <EmptyState
+          emoji="✉️"
+          title="No group invitations"
+          subtitle="Invitations from teams and study groups will appear here."
+        />
+      }
+      renderItem={({ item: invitation }) => (
+        <View style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.notificationIcon, { backgroundColor: colors.muted }]}>
+            <Text style={{ fontSize: 21 }}>{invitation.group?.emoji ?? "👥"}</Text>
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={{ color: colors.foreground, fontFamily: fonts.sansSemiBold, fontSize: 14 }}>
+              {invitation.group?.title ?? "Group invitation"}
+            </Text>
+            <Text numberOfLines={2} style={{ color: colors.mutedForeground, fontFamily: fonts.sans, fontSize: 11, marginTop: 2 }}>
+              {invitation.inviter
+                ? `${invitation.inviter.display_name} (@${invitation.inviter.username}) invited you`
+                : "You were invited"}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <Pressable
+              disabled={busyId !== null}
+              onPress={() => respond(invitation, false)}
+              accessibilityRole="button"
+              accessibilityLabel="Decline group invitation"
+              style={[styles.inviteAction, { borderColor: colors.border }]}
+            >
+              <Ionicons name="close" size={18} color={colors.foreground} />
+            </Pressable>
+            <Pressable
+              disabled={busyId !== null}
+              onPress={() => respond(invitation, true)}
+              accessibilityRole="button"
+              accessibilityLabel="Accept group invitation"
+              style={[styles.inviteAction, { backgroundColor: colors.foreground, borderColor: colors.foreground }]}
+            >
+              <Ionicons name="checkmark" size={18} color={colors.background} />
+            </Pressable>
+          </View>
+        </View>
+      )}
+    />
   );
 }
 
@@ -243,8 +365,9 @@ function AllList({ onOpenRequests }: { onOpenRequests: () => void }) {
   const { colors } = useTheme();
   const router = useRouter();
   const { data, isLoading, error, mutate } = useNotifications();
-  const { invalidateNotifications } = useInvalidate();
+  const { invalidateChat, invalidateNotifications } = useInvalidate();
   const [refreshing, setRefreshing] = useState(false);
+  const [busyInvite, setBusyInvite] = useState<string | null>(null);
 
   const notifications = data?.notifications ?? [];
   const unread = data?.unread_count ?? 0;
@@ -273,6 +396,26 @@ function AllList({ onOpenRequests }: { onOpenRequests: () => void }) {
       invalidateNotifications();
     } catch {
       dialog.toast("Failed to dismiss", "error");
+    }
+  }
+
+  async function respondToGroupInvite(n: AppNotification, accept: boolean) {
+    const invitationId = n.metadata.invitation_id ?? n.entity_id;
+    if (!invitationId || busyInvite) return;
+    setBusyInvite(invitationId);
+    try {
+      const result = await api.post<{ conversation_id: string }>(
+        `/api/chat/group-invitations/${invitationId}/${accept ? "accept" : "decline"}`,
+      );
+      await api.post(`/api/notifications/${n.id}/read`).catch(() => null);
+      invalidateNotifications();
+      invalidateChat();
+      if (accept) router.push(`/messages/${result.conversation_id}`);
+      else dialog.toast("Invitation declined", "success");
+    } catch (error) {
+      dialog.toast(error instanceof Error ? error.message : "Could not respond to invitation", "error");
+    } finally {
+      setBusyInvite(null);
     }
   }
 
@@ -330,6 +473,24 @@ function AllList({ onOpenRequests }: { onOpenRequests: () => void }) {
       renderItem={({ item: n }) => {
         const { emoji, title, text } = describeNotification(n);
         const isUnread = !n.read_at;
+        if (n.type === "group_invite") {
+          return (
+            <View style={[styles.row, { backgroundColor: colors.card, borderColor: isUnread ? colors.foreground + "33" : colors.border }]}>
+              <View style={[styles.notificationIcon, { backgroundColor: colors.muted }]}>
+                <Text style={{ fontSize: 21 }}>{emoji}</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
+                <Text style={{ fontSize: 13, fontFamily: fonts.sansSemiBold, color: colors.foreground }}>{title}</Text>
+                <Text style={{ fontSize: 12, fontFamily: fonts.sans, color: colors.mutedForeground }}>{text}</Text>
+                <Text style={{ fontSize: 11, color: colors.mutedForeground, fontFamily: fonts.sans }}>{relativeTime(n.created_at)}</Text>
+                <View style={{ flexDirection: "row", gap: 7 }}>
+                  <Button title="Accept" size="sm" loading={busyInvite === (n.metadata.invitation_id ?? n.entity_id)} disabled={busyInvite !== null} onPress={() => respondToGroupInvite(n, true)} />
+                  <Button title="Decline" size="sm" variant="outline" disabled={busyInvite !== null} onPress={() => respondToGroupInvite(n, false)} />
+                </View>
+              </View>
+            </View>
+          );
+        }
         return (
           <Pressable
             onPress={() => open(n)}
@@ -517,7 +678,15 @@ function RequestsList() {
                 size="sm"
                 variant="outline"
                 loading={busyId === r.id}
-                onPress={() => run(r.id, () => api.delete(`/api/friends/requests/${r.id}`))}
+                onPress={async () => {
+                  const confirmed = await dialog.confirm({
+                    title: "Cancel friend request?",
+                    message: `Your request to @${r.username} will be withdrawn.`,
+                    confirmText: "Cancel request",
+                    destructive: true,
+                  });
+                  if (confirmed) run(r.id, () => api.delete(`/api/friends/requests/${r.id}`));
+                }}
               />
             </View>
           ))
@@ -550,5 +719,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 2,
     fontFamily: "PlusJakartaSans_500Medium",
+  },
+  inviteAction: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

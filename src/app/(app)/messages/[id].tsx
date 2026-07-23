@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -16,18 +16,19 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "@/components/ui/Button";
+import { ChatSystemNotice } from "@/components/chat/ChatSystemNotice";
 import { dialog } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/Segmented";
 import { api } from "@/lib/api";
 import {
   useConversations,
-  useFriends,
   useInvalidate,
   useProfile,
   useSessions,
   type ChatMessage,
 } from "@/lib/hooks";
 import { uniqueChannel } from "@/lib/realtime";
+import { setActiveChatConversationForNotifications } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
@@ -55,7 +56,12 @@ export default function ChatThreadScreen() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
+
+  useFocusEffect(useCallback(() => {
+    if (!conversationId) return undefined;
+    setActiveChatConversationForNotifications(conversationId);
+    return () => setActiveChatConversationForNotifications(null);
+  }, [conversationId]));
 
   const convo = conversations?.find((c) => c.id === conversationId);
   const title = convo
@@ -195,15 +201,15 @@ export default function ChatThreadScreen() {
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </Pressable>
         <Text numberOfLines={1} style={{ flex: 1, fontSize: 15, fontFamily: fonts.sansSemiBold, color: colors.foreground }}>
-          {title}
+          {convo?.is_group ? `${convo.emoji ?? "👥"} ${title}` : title}
         </Text>
         <Pressable onPress={() => setInviteOpen(true)} hitSlop={8}>
           <Ionicons name="calendar-outline" size={20} color={colors.mutedForeground} />
         </Pressable>
         {convo?.is_group && (
           <>
-            <Pressable onPress={() => setAddOpen(true)} hitSlop={8}>
-              <Ionicons name="person-add-outline" size={19} color={colors.mutedForeground} />
+            <Pressable onPress={() => router.push(`/group/${conversationId}` as never)} hitSlop={8}>
+              <Ionicons name="people-outline" size={20} color={colors.mutedForeground} />
             </Pressable>
             <Pressable onPress={confirmLeaveGroup} hitSlop={8}>
               <Ionicons name="log-out-outline" size={20} color={colors.mutedForeground} />
@@ -232,6 +238,10 @@ export default function ChatThreadScreen() {
           const emoji = isOwn ? viewerEmoji : (m.sender?.emoji ?? "🍅");
           const username = m.sender?.username ?? "Unknown";
           const displayName = m.sender?.display_name ?? username;
+
+          if (m.metadata?.system_event) {
+            return <ChatSystemNotice message={m.content ?? "Group membership changed"} />;
+          }
 
           if (m.kind === "session_invite") {
             return (
@@ -324,14 +334,6 @@ export default function ChatThreadScreen() {
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
       />
-      {convo?.is_group && (
-        <AddMemberModal
-          conversationId={conversationId ?? ""}
-          open={addOpen}
-          onClose={() => setAddOpen(false)}
-          existing={convo.members.map((m) => m.id)}
-        />
-      )}
     </KeyboardAvoidingView>
   );
 }
@@ -456,73 +458,6 @@ function InviteToSessionModal({
 }
 
 // ── Add member ────────────────────────────────────────────────────────────────
-
-function AddMemberModal({
-  conversationId,
-  open,
-  onClose,
-  existing,
-}: {
-  conversationId: string;
-  open: boolean;
-  onClose: () => void;
-  existing: string[];
-}) {
-  const { colors } = useTheme();
-  const { data } = useFriends();
-  const { invalidateChat } = useInvalidate();
-  const [busy, setBusy] = useState(false);
-  const candidates = (data?.friends ?? []).filter((f) => !existing.includes(f.id));
-
-  async function add(username: string) {
-    setBusy(true);
-    try {
-      await api.post(`/api/chat/conversations/${conversationId}/members`, { username });
-      invalidateChat();
-      onClose();
-    } catch (e) {
-      dialog.toast(e instanceof Error ? e.message : "Could not add", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable
-          style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <Text style={{ fontSize: 16, fontFamily: fonts.sansSemiBold, color: colors.foreground, marginBottom: 12 }}>
-            Add a friend
-          </Text>
-          {candidates.length === 0 ? (
-            <Text style={{ fontSize: 13, color: colors.mutedForeground, fontFamily: fonts.sans, textAlign: "center", paddingVertical: 16 }}>
-              No more friends to add.
-            </Text>
-          ) : (
-            <ScrollView style={{ maxHeight: 300 }}>
-              {candidates.map((f) => (
-                <Pressable
-                  key={f.id}
-                  disabled={busy}
-                  onPress={() => add(f.username)}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 }}
-                >
-                  <Text style={{ fontSize: 20 }}>{f.emoji}</Text>
-                  <Text style={{ fontSize: 14, fontFamily: fonts.sansMedium, color: colors.foreground }}>
-                    {f.display_name} <Text style={{ color: colors.mutedForeground }}>@{f.username}</Text>
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
 
 const styles = StyleSheet.create({
   header: {

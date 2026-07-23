@@ -97,14 +97,27 @@ interface DialogApi {
 
 // ── Imperative singleton (works outside the React tree / in callbacks) ────────
 
-let host: DialogApi | null = null;
+interface DialogHost {
+  api: DialogApi;
+  priority: number;
+}
+
+const hosts: DialogHost[] = [];
+
+function activeHost(): DialogApi | null {
+  return hosts.reduce<DialogHost | null>(
+    (active, candidate) =>
+      !active || candidate.priority >= active.priority ? candidate : active,
+    null,
+  )?.api ?? null;
+}
 
 export const dialog: DialogApi = {
-  alert: (o) => host?.alert(o) ?? Promise.resolve(),
-  confirm: (o) => host?.confirm(o) ?? Promise.resolve(false),
-  prompt: (o) => host?.prompt(o) ?? Promise.resolve(null),
-  actions: (o) => host?.actions(o) ?? Promise.resolve(null),
-  toast: (m, t) => host?.toast(m, t),
+  alert: (o) => activeHost()?.alert(o) ?? Promise.resolve(),
+  confirm: (o) => activeHost()?.confirm(o) ?? Promise.resolve(false),
+  prompt: (o) => activeHost()?.prompt(o) ?? Promise.resolve(null),
+  actions: (o) => activeHost()?.actions(o) ?? Promise.resolve(null),
+  toast: (m, t) => activeHost()?.toast(m, t),
 };
 
 const DialogContext = createContext<DialogApi>(dialog);
@@ -126,7 +139,13 @@ interface ToastItem {
   type: ToastType;
 }
 
-export function DialogProvider({ children }: { children: React.ReactNode }) {
+export function DialogProvider({
+  children,
+  priority = 0,
+}: {
+  children: React.ReactNode;
+  priority?: number;
+}) {
   const [modal, setModal] = useState<ModalState | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastId = useRef(0);
@@ -151,13 +170,16 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     },
   }));
 
-  // Register/unregister the singleton so `dialog.*` reaches this host.
+  // Nested native presentations mount their own provider. Keep a stack so the
+  // topmost screen receives dialogs and the root host is restored on unmount.
   useEffect(() => {
-    host = api;
+    const entry = { api, priority };
+    hosts.push(entry);
     return () => {
-      if (host === api) host = null;
+      const index = hosts.lastIndexOf(entry);
+      if (index >= 0) hosts.splice(index, 1);
     };
-  }, [api]);
+  }, [api, priority]);
 
   const close = useCallback(() => setModal(null), []);
 

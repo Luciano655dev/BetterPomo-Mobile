@@ -115,6 +115,9 @@ export function PushNotificationManager() {
             router.push(`/messages/${data.conversation_id ?? data.entity_id}` as Href);
           }
           break;
+        case "group_invite":
+          router.push("/notifications?tab=invites" as Href);
+          break;
         case "trial_ending":
           router.push("/settings");
           break;

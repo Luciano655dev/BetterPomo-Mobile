@@ -30,6 +30,8 @@ export default function AppLayout() {
       <Stack.Screen name="onboarding" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="settings" />
       <Stack.Screen name="notifications" />
+      <Stack.Screen name="group/[id]" />
+      <Stack.Screen name="group-invite/[token]" />
       <Stack.Screen name="upgrade" options={{ presentation: "modal" }} />
       </Stack>
       <OfflineBanner />
