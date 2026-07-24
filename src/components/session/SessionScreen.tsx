@@ -8,7 +8,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -22,9 +21,11 @@ import { SessionRecap, type SummaryEntry } from "@/components/dashboard/SessionR
 import { ChatPanel } from "@/components/session/ChatPanel";
 import { ConfigPanel } from "@/components/session/ConfigPanel";
 import { NotesPanel } from "@/components/session/NotesPanel";
+import { SessionExitMenu } from "@/components/session/SessionExitMenu";
 import { SoundPanel } from "@/components/session/SoundPanel";
 import { StopwatchView } from "@/components/session/StopwatchView";
 import { ControlText, formatTime, squareStyles, TimerSquare } from "@/components/session/TimerBits";
+import { useSessionPanel } from "@/components/session/useSessionPanel";
 import { Button } from "@/components/ui/Button";
 import { dialog } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/Segmented";
@@ -92,7 +93,14 @@ export function SessionScreen({
   const [viewerIds, setViewerIds] = useState<Set<string>>(new Set());
   const [laps, setLaps] = useState<Lap[]>([]);
   const [tab, setTab] = useState<PanelTab>("chat");
-  const [panelOpen, setPanelOpen] = useState(true);
+  const {
+    panelSize,
+    panelGestureHandlers,
+    setPanelSize,
+    expandPanel,
+    shrinkPanel,
+    togglePanel,
+  } = useSessionPanel();
   const [tick, setTick] = useState(0);
   const [sessionEnded, setSessionEnded] = useState(initialSession.status === "ended");
   const [summary, setSummary] = useState<SummaryEntry | null>(null);
@@ -110,8 +118,6 @@ export function SessionScreen({
 
   const isAdmin = userRoleState === "owner" || userRoleState === "admin";
   const isStopwatch = session.session_type === "stopwatch";
-  const leaving = leaveAction !== null;
-
   const workTimers = timers.filter((t) => !isBreakTimer(t.name));
   const breakTimers = timers.filter((t) => isBreakTimer(t.name));
   const currentTimer = timers[session.current_timer_index] ?? null;
@@ -263,7 +269,7 @@ export function SessionScreen({
     if (!isAdmin) return;
     const firstBreakIdx = timersRef.current.findIndex((t) => isBreakTimer(t.name));
     if (firstBreakIdx < 0) {
-      setPanelOpen(true);
+      setPanelSize("standard");
       setTab("config");
       dialog.toast("No break timers yet — add one in Config", "info");
       return;
@@ -294,8 +300,19 @@ export function SessionScreen({
 
   function handleSwReset() {
     if (!isAdmin) return;
-    setLaps([]);
     doAction({ timer_state: "idle", timer_started_at: null, paused_elapsed_seconds: 0 }, { action: "sw_reset" });
+  }
+
+  async function handleResetLaps() {
+    if (!isAdmin) return;
+    const previous = laps;
+    setLaps([]);
+    try {
+      await api.delete(`/api/sessions/${session.id}/laps`);
+    } catch (e) {
+      setLaps(previous);
+      dialog.toast((e as Error).message || "Failed to reset laps", "error");
+    }
   }
 
   async function handleLap(durationSeconds: number) {
@@ -843,6 +860,7 @@ export function SessionScreen({
             onPause={handlePause}
             onResume={handleResume}
             onReset={handleSwReset}
+            onResetLaps={handleResetLaps}
             onLap={handleLap}
             onRenameLap={handleRenameLap}
             onDeleteLap={handleDeleteLap}
@@ -963,20 +981,32 @@ export function SessionScreen({
       <View
         style={[
           styles.panel,
-          panelOpen ? styles.panelOpen : styles.panelClosed,
-          { borderTopColor: colors.border, paddingBottom: panelOpen ? insets.bottom : 0 },
+          panelSize === "expanded"
+            ? styles.panelExpanded
+            : panelSize === "standard"
+              ? styles.panelStandard
+              : styles.panelCollapsed,
+          { borderTopColor: colors.border, paddingBottom: panelSize === "collapsed" ? 0 : insets.bottom },
         ]}
       >
         {/* Grab handle / toggle */}
         <Pressable
-          onPress={() => setPanelOpen((o) => !o)}
+          onPress={() => {
+            if (panelSize === "collapsed") setPanelSize("standard");
+            else togglePanel();
+          }}
           style={styles.panelHandle}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Session tools panel"
+          accessibilityHint="Swipe up to expand or down to minimize"
+          accessibilityState={{ expanded: panelSize !== "collapsed" }}
+          {...panelGestureHandlers}
         >
           <View style={[styles.grip, { backgroundColor: colors.border }]} />
         </Pressable>
 
-        {panelOpen ? (
+        {panelSize !== "collapsed" ? (
           <>
             <View style={styles.panelHeaderRow}>
               <View style={{ flex: 1 }}>
@@ -991,7 +1021,23 @@ export function SessionScreen({
                   onChange={setTab}
                 />
               </View>
-              <Pressable onPress={() => setPanelOpen(false)} hitSlop={8} style={styles.minimizeBtn}>
+              <Pressable
+                onPress={expandPanel}
+                disabled={panelSize === "expanded"}
+                hitSlop={8}
+                style={[styles.panelSizeBtn, panelSize === "expanded" && styles.panelSizeBtnDisabled]}
+                accessibilityRole="button"
+                accessibilityLabel="Expand session tools"
+              >
+                <Ionicons name="chevron-up" size={18} color={colors.mutedForeground} />
+              </Pressable>
+              <Pressable
+                onPress={shrinkPanel}
+                hitSlop={8}
+                style={styles.panelSizeBtn}
+                accessibilityRole="button"
+                accessibilityLabel={panelSize === "expanded" ? "Return session tools to standard size" : "Minimize session tools"}
+              >
                 <Ionicons name="chevron-down" size={18} color={colors.mutedForeground} />
               </Pressable>
             </View>
@@ -1037,99 +1083,36 @@ export function SessionScreen({
           </>
         ) : (
           <Pressable
-            onPress={() => setPanelOpen(true)}
+            onPress={() => setPanelSize("standard")}
             style={[styles.collapsedRow, { paddingBottom: insets.bottom + 10 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Open session tools"
+            accessibilityHint="Swipe up to open, then swipe again to expand"
+            {...panelGestureHandlers}
           >
             <Ionicons name="chatbubbles-outline" size={16} color={colors.mutedForeground} />
             <Text style={{ fontSize: 13, color: colors.mutedForeground, fontFamily: fonts.sansMedium }}>
-              Chat, notes &amp; config
+              Chat, notes, sounds &amp; config
             </Text>
             <Ionicons name="chevron-up" size={16} color={colors.mutedForeground} />
           </Pressable>
         )}
       </View>
 
-      {/* Exit menu — a local modal (not the root dialog singleton) so it always
-          renders on top of this pushed session screen. */}
-      <Modal
-        transparent
+      <SessionExitMenu
         visible={exitMenuOpen}
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => !leaving && setExitMenuOpen(false)}
-      >
-        <Pressable
-          style={styles.exitBackdrop}
-          onPress={() => !leaving && setExitMenuOpen(false)}
-        >
-          <Pressable
-            style={[styles.exitSheet, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={styles.exitHeader}>
-              <Text style={{ fontSize: 15, fontFamily: fonts.sansSemiBold, color: colors.foreground }}>
-                {session.name}
-              </Text>
-              <Text style={{ fontSize: 13, lineHeight: 18, color: colors.mutedForeground, fontFamily: fonts.sans }}>
-                Go home to keep the session running in the background — you can jump back in from the
-                banner. When leaving, choose whether to save your time to history.
-              </Text>
-            </View>
-
-            <Pressable
-              onPress={goHome}
-              disabled={leaving}
-              style={({ pressed }) => [styles.exitRow, pressed && { backgroundColor: colors.muted }]}
-            >
-              <Ionicons name="home-outline" size={18} color={colors.foreground} />
-              <Text style={{ fontSize: 15, fontFamily: fonts.sansMedium, color: colors.foreground }}>
-                Go to home
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => handleLeave(false)}
-              disabled={leaving}
-              accessibilityRole="button"
-              accessibilityLabel="Leave session without saving to history"
-              style={({ pressed }) => [styles.exitRow, pressed && { backgroundColor: colors.muted }]}
-            >
-              <Ionicons name="exit-outline" size={18} color={colors.destructive} />
-              <Text style={{ fontSize: 15, fontFamily: fonts.sansMedium, color: colors.destructive }}>
-                {leaveAction === "discard" ? "Leaving…" : "Leave without saving"}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => handleLeave(true)}
-              disabled={leaving}
-              accessibilityRole="button"
-              accessibilityLabel="Save session to history and leave"
-              style={({ pressed }) => [styles.exitRow, pressed && { backgroundColor: colors.muted }]}
-            >
-              <Ionicons name="save-outline" size={18} color={colors.destructive} />
-              <Text style={{ fontSize: 15, fontFamily: fonts.sansMedium, color: colors.destructive }}>
-                {leaveAction === "save" ? "Saving…" : "Save & leave"}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => setExitMenuOpen(false)}
-              disabled={leaving}
-              style={({ pressed }) => [
-                styles.exitRow,
-                styles.exitCancelRow,
-                { borderTopColor: colors.border },
-                pressed && { backgroundColor: colors.muted },
-              ]}
-            >
-              <Text style={{ fontSize: 15, fontFamily: fonts.sansMedium, color: colors.mutedForeground }}>
-                Cancel
-              </Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        sessionName={session.name}
+        description="Go home to keep the session running in the background — you can jump back in from the banner. When leaving, choose whether to save your time to history."
+        discardTitle="Leave without saving?"
+        discardMessage="This session will not be added to your history. This cannot be undone later."
+        discardLabel="Leave without saving"
+        saveLabel="Save & leave"
+        busyAction={leaveAction}
+        onGoHome={goHome}
+        onDiscard={() => handleLeave(false)}
+        onSave={() => handleLeave(true)}
+        onClose={() => setExitMenuOpen(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1188,8 +1171,9 @@ const styles = StyleSheet.create({
   panel: {
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  panelOpen: { height: "42%" },
-  panelClosed: {},
+  panelStandard: { height: "42%" },
+  panelExpanded: { height: "78%" },
+  panelCollapsed: {},
   panelHandle: { alignItems: "center", paddingTop: 8, paddingBottom: 4 },
   grip: { width: 36, height: 4, borderRadius: 2 },
   panelHeaderRow: {
@@ -1199,7 +1183,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 2,
   },
-  minimizeBtn: { padding: 4 },
+  panelSizeBtn: { padding: 4 },
+  panelSizeBtnDisabled: { opacity: 0.3 },
   collapsedRow: {
     flexDirection: "row",
     alignItems: "center",

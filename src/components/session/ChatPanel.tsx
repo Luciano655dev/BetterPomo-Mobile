@@ -2,12 +2,13 @@ import { Ionicons } from "@expo/vector-icons";
 import React, { useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import type { SessionChatMessage } from "@/lib/session-types";
+import { ChatSystemNotice } from "@/components/chat/ChatSystemNotice";
+import type { SessionChatItem } from "@/lib/session-types";
 import { useTheme } from "@/theme/ThemeContext";
 import { fonts, radius } from "@/theme/tokens";
 
 interface ChatPanelProps {
-  messages: SessionChatMessage[];
+  messages: SessionChatItem[];
   onSendMessage: (content: string) => Promise<void>;
   userId: string;
   userEmoji?: string;
@@ -60,6 +61,9 @@ export function ChatPanel({
           </View>
         }
         renderItem={({ item: msg }) => {
+          if ("type" in msg && msg.type === "participant_joined") {
+            return <ChatSystemNotice message={msg.content} />;
+          }
           const isOwn = msg.user_id === userId;
           const emoji = isOwn ? userEmoji : (msg.profiles?.emoji ?? "🍅");
           const username = msg.profiles?.username ?? "Unknown";

@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.betterpomo.app",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "icon": {
@@ -108,6 +108,27 @@
           "savePhotosPermission": "Allow BetterPomo to save your focus session recap to Photos.",
           "isAccessMediaLocationEnabled": false
         }
+      ],
+      [
+        "expo-alternate-app-icons",
+        [
+          {
+            "name": "Light",
+            "ios": "./assets/images/Icon_light.png",
+            "android": {
+              "foregroundImage": "./assets/images/Logo_light.png",
+              "backgroundColor": "#ffffff"
+            }
+          },
+          {
+            "name": "Dark",
+            "ios": "./assets/images/Icon_dark.png",
+            "android": {
+              "foregroundImage": "./assets/images/Logo_dark.png",
+              "backgroundColor": "#121215"
+            }
+          }
+        ]
       ]
     ],
     "experiments": {

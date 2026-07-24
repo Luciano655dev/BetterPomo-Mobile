@@ -25,6 +25,7 @@ type StickerScheme = "light" | "dark";
 
 /** Solid fill for a ready-to-post card, per sticker scheme. */
 const STICKER_FILL: Record<StickerScheme, string> = { light: "#f1f1f1", dark: "#0c0c0e" };
+const SOCIAL_CARD_RADIUS = 16;
 
 /** Small inline segmented control matching the webapp's recap toggles. */
 function Segmented<T extends string>({
@@ -38,7 +39,12 @@ function Segmented<T extends string>({
 }) {
   const { colors } = useTheme();
   return (
-    <View style={[styles.segment, { borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.segment,
+        { backgroundColor: colors.background, borderColor: colors.border },
+      ]}
+    >
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -167,7 +173,17 @@ export function SessionRecap({ entry }: { entry: SummaryEntry }) {
           { backgroundColor: stickerScheme === "dark" ? "#1a1a1d" : "#e6e6e6", borderColor: colors.border },
         ]}
       >
-        <View ref={shotRef} collapsable={false} style={[styles.card, { backgroundColor: fill }]}>
+        <View
+          ref={shotRef}
+          collapsable={false}
+          style={[
+            styles.card,
+            {
+              backgroundColor: fill,
+              borderRadius: withBg ? SOCIAL_CARD_RADIUS : 0,
+            },
+          ]}
+        >
           <View style={[styles.pill, { backgroundColor: sc.foreground }]}>
             <Logo size={14} variant={stickerScheme === "dark" ? "light" : "dark"} />
             <Text style={{ fontSize: 11, fontFamily: fonts.sansSemiBold, color: sc.background }}>
@@ -233,54 +249,61 @@ export function SessionRecap({ entry }: { entry: SummaryEntry }) {
         </View>
       </View>
 
-      {/* Theme + Background choices */}
-      <View style={styles.controls}>
-        <View style={styles.control}>
-          <Text style={[styles.controlLabel, { color: colors.mutedForeground }]}>Theme</Text>
-          <Segmented
-            value={stickerScheme}
-            onChange={setStickerScheme}
-            options={[
-              { label: "Light", value: "light" },
-              { label: "Dark", value: "dark" },
-            ]}
+      <View
+        style={[
+          styles.actionsPanel,
+          { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+      >
+        {/* Theme + Background choices */}
+        <View style={styles.controls}>
+          <View style={styles.control}>
+            <Text style={[styles.controlLabel, { color: colors.mutedForeground }]}>Theme</Text>
+            <Segmented
+              value={stickerScheme}
+              onChange={setStickerScheme}
+              options={[
+                { label: "Light", value: "light" },
+                { label: "Dark", value: "dark" },
+              ]}
+            />
+          </View>
+          <View style={styles.control}>
+            <Text style={[styles.controlLabel, { color: colors.mutedForeground }]}>Background</Text>
+            <Segmented
+              value={withBg ? "on" : "off"}
+              onChange={(v) => setWithBg(v === "on")}
+              options={[
+                { label: "On", value: "on" },
+                { label: "Off", value: "off" },
+              ]}
+            />
+          </View>
+        </View>
+
+        <Text style={{ fontSize: 12, textAlign: "center", color: colors.mutedForeground, fontFamily: fonts.sans }}>
+          {withBg
+            ? "Saved as a ready-to-post image."
+            : "Transparent background — layer it over your story."}
+        </Text>
+
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Button
+            title={busy === "share" ? "Preparing…" : "Share"}
+            onPress={handleShare}
+            disabled={busy !== null}
+            loading={busy === "share"}
+            style={{ flex: 1 }}
+          />
+          <Button
+            title={busy === "save" ? "Saving…" : "Save image"}
+            variant="outline"
+            onPress={handleSave}
+            disabled={busy !== null}
+            loading={busy === "save"}
+            style={{ flex: 1, backgroundColor: colors.background }}
           />
         </View>
-        <View style={styles.control}>
-          <Text style={[styles.controlLabel, { color: colors.mutedForeground }]}>Background</Text>
-          <Segmented
-            value={withBg ? "on" : "off"}
-            onChange={(v) => setWithBg(v === "on")}
-            options={[
-              { label: "On", value: "on" },
-              { label: "Off", value: "off" },
-            ]}
-          />
-        </View>
-      </View>
-
-      <Text style={{ fontSize: 12, textAlign: "center", color: colors.mutedForeground, fontFamily: fonts.sans }}>
-        {withBg
-          ? "Saved as a ready-to-post image."
-          : "Transparent background — layer it over your story."}
-      </Text>
-
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <Button
-          title={busy === "share" ? "Preparing…" : "Share"}
-          onPress={handleShare}
-          disabled={busy !== null}
-          loading={busy === "share"}
-          style={{ flex: 1 }}
-        />
-        <Button
-          title={busy === "save" ? "Saving…" : "Save image"}
-          variant="outline"
-          onPress={handleSave}
-          disabled={busy !== null}
-          loading={busy === "save"}
-          style={{ flex: 1 }}
-        />
       </View>
     </View>
   );
@@ -296,10 +319,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   card: {
-    borderRadius: radius["3xl"],
     paddingVertical: 28,
     paddingHorizontal: 24,
     alignItems: "center",
+    overflow: "hidden",
   },
   pill: {
     flexDirection: "row",
@@ -325,6 +348,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     gap: 16,
+  },
+  actionsPanel: {
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: radius.xl,
+    padding: 12,
   },
   control: { flexDirection: "row", alignItems: "center", gap: 8 },
   controlLabel: { fontSize: 12, fontFamily: fonts.sans },

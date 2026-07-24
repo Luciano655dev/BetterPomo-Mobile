@@ -14,6 +14,7 @@ export type PushNotificationData = {
     | "friend_accept"
     | "session_invite"
     | "group_add"
+    | "group_invite"
     | "chat_message"
     | "trial_ending"
     | "timer_finished"
@@ -22,10 +23,12 @@ export type PushNotificationData = {
   emoji?: string;
   conversation_id?: string;
   entity_id?: string;
+  invitation_id?: string;
   code?: string;
   session_code?: string;
   session_name?: string;
   duration_seconds?: number;
+  message_count?: number;
   offline?: boolean;
 };
 
@@ -35,15 +38,24 @@ export const PUSH_PERMISSION_PROMPTED_KEY = "bp_push_permission_prompted_v1";
 export const DEFAULT_NOTIFICATION_CHANNEL_ID = "default";
 
 let registrationInFlight: Promise<boolean> | null = null;
+let activeChatConversationId: string | null = null;
+
+export function setActiveChatConversationForNotifications(conversationId: string | null): void {
+  activeChatConversationId = conversationId;
+}
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data as PushNotificationData;
     const timerIsAlreadyVisible = data.type === "timer_finished" && AppState.currentState === "active";
+    const chatIsAlreadyVisible = data.type === "chat_message"
+      && AppState.currentState === "active"
+      && data.conversation_id === activeChatConversationId;
+    const shouldDisplay = !timerIsAlreadyVisible && !chatIsAlreadyVisible;
     return {
-      shouldShowBanner: !timerIsAlreadyVisible,
-      shouldShowList: !timerIsAlreadyVisible,
-      shouldPlaySound: !timerIsAlreadyVisible,
+      shouldShowBanner: shouldDisplay,
+      shouldShowList: shouldDisplay,
+      shouldPlaySound: shouldDisplay,
       shouldSetBadge: false,
     };
   },

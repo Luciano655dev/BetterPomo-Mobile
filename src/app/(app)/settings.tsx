@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 
+import { AppIconPicker } from "@/components/settings/AppIconPicker";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { dialog } from "@/components/ui/dialog";
@@ -341,6 +342,8 @@ export default function SettingsScreen() {
             value={preference}
             onChange={setPreference}
           />
+          <View style={[styles.appearanceDivider, { backgroundColor: colors.border }]} />
+          <AppIconPicker />
         </Card>
 
         {/* Privacy */}
@@ -709,6 +712,7 @@ function ProfileEditModal({
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, gap: 14, paddingTop: 16, paddingBottom: 40 },
+  appearanceDivider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
   accountCard: { flexDirection: "row", alignItems: "center", gap: 12 },
   rowBetween: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 4 },
   securityRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 42 },

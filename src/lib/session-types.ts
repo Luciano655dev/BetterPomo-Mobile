@@ -48,6 +48,12 @@ export interface SessionChatMessage {
   profiles: { username: string; display_name: string; emoji: string } | null;
 }
 
+export interface SessionChatNotice extends SessionChatMessage {
+  type: "participant_joined";
+}
+
+export type SessionChatItem = SessionChatMessage | SessionChatNotice;
+
 export function isBreakTimer(name: string) {
   const l = name.toLowerCase();
   return l.includes("break") || l.includes("rest") || l.includes("pause");

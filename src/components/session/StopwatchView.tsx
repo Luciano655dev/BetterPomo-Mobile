@@ -18,6 +18,7 @@ interface StopwatchViewProps {
   onPause: () => void;
   onResume: () => void;
   onReset: () => void;
+  onResetLaps: () => void;
   onLap: (durationSeconds: number) => void;
   onRenameLap: (lapId: string, name: string) => void;
   onDeleteLap: (lapId: string) => void;
@@ -51,6 +52,18 @@ function formatSplit(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${t}`;
 }
 
+function getLapSplit(lap: Lap, previousLap: Lap | undefined, runStartedAt: string | null): number {
+  if (!previousLap) return lap.duration_seconds;
+  const runStart = runStartedAt ? Date.parse(runStartedAt) : Number.NaN;
+  const startsCurrentRun = Number.isFinite(runStart)
+    && Date.parse(lap.created_at) >= runStart
+    && Date.parse(previousLap.created_at) < runStart;
+  if (startsCurrentRun || lap.duration_seconds < previousLap.duration_seconds) {
+    return lap.duration_seconds;
+  }
+  return lap.duration_seconds - previousLap.duration_seconds;
+}
+
 function ControlText({ label, onPress, primary }: { label: string; onPress: () => void; primary?: boolean }) {
   const { colors } = useTheme();
   return (
@@ -81,6 +94,7 @@ export function StopwatchView({
   onPause,
   onResume,
   onReset,
+  onResetLaps,
   onLap,
   onRenameLap,
   onDeleteLap,
@@ -102,9 +116,25 @@ export function StopwatchView({
     return () => clearInterval(id);
   }, [timerState, timerStartedAt, pausedElapsedSeconds]);
 
-  const lastLapTotal = laps.length > 0 ? laps[laps.length - 1].duration_seconds : 0;
+  const currentRunStartedAt = timerStartedAt ? Date.parse(timerStartedAt) : Number.NaN;
+  const latestLap = laps[laps.length - 1];
+  const lastLapTotal = latestLap
+    && Number.isFinite(currentRunStartedAt)
+    && Date.parse(latestLap.created_at) >= currentRunStartedAt
+      ? latestLap.duration_seconds
+      : 0;
   const currentSplit = Math.max(0, elapsed - lastLapTotal);
   const sortedLaps = [...laps].reverse();
+
+  async function confirmResetLaps() {
+    const confirmed = await dialog.confirm({
+      title: "Reset all laps?",
+      message: "Every recorded lap will be cleared. The stopwatch time will not change.",
+      confirmText: "Reset laps",
+      destructive: true,
+    });
+    if (confirmed) onResetLaps();
+  }
 
   async function lapActions(lap: Lap) {
     if (!isAdmin) return;
@@ -124,62 +154,88 @@ export function StopwatchView({
       const trimmed = name?.trim();
       if (trimmed && trimmed !== lap.name) onRenameLap(lap.id, trimmed);
     } else if (choice === "delete") {
-      onDeleteLap(lap.id);
+      const confirmed = await dialog.confirm({
+        title: `Delete ${lap.name}?`,
+        message: "This lap cannot be restored.",
+        confirmText: "Delete lap",
+        destructive: true,
+      });
+      if (confirmed) onDeleteLap(lap.id);
     }
   }
 
   return (
     <View style={styles.root}>
-      <Text style={[styles.sessionName, { color: colors.mutedForeground, fontFamily: fonts.sans }]}>
-        {sessionName.toUpperCase()}
-        {timerState === "paused" ? " — PAUSED" : ""}
-      </Text>
-
-      <Text
-        style={[
-          styles.clock,
-          {
-            color: colors.foreground,
-            fontFamily: fonts.monoSemiBold,
-            opacity: isIdle ? 0.25 : timerState === "paused" ? 0.5 : 1,
-          },
-        ]}
-      >
-        {formatStopwatch(isIdle && !hasTime ? 0 : elapsed)}
-      </Text>
-
-      {isAdmin ? (
-        <View style={styles.controls}>
-          {isIdle && <ControlText label="Start" onPress={onStart} primary />}
-          {isRunning && (
-            <>
-              <ControlText label="Pause" onPress={onPause} />
-              <Text style={{ color: colors.mutedForeground }}>·</Text>
-              <ControlText label="Lap" onPress={() => onLap(elapsed)} />
-            </>
-          )}
-          {timerState === "paused" && (
-            <>
-              <ControlText label="Resume" onPress={onResume} primary />
-              {hasTime && (
-                <>
-                  <Text style={{ color: colors.mutedForeground }}>·</Text>
-                  <ControlText label="Reset" onPress={onReset} />
-                </>
-              )}
-            </>
-          )}
-        </View>
-      ) : (
-        <Text style={{ fontSize: 11, letterSpacing: 2, color: colors.mutedForeground, fontFamily: fonts.sans }}>
-          {isIdle ? "WAITING FOR HOST TO START…" : isRunning ? "RUNNING…" : "PAUSED — WAITING FOR HOST…"}
+      <View style={styles.timerStage}>
+        <Text style={[styles.sessionName, { color: colors.mutedForeground, fontFamily: fonts.sans }]}>
+          {sessionName.toUpperCase()}
+          {timerState === "paused" ? " — PAUSED" : ""}
         </Text>
-      )}
+
+        <Text
+          style={[
+            styles.clock,
+            {
+              color: colors.foreground,
+              fontFamily: fonts.monoSemiBold,
+              opacity: isIdle ? 0.25 : timerState === "paused" ? 0.5 : 1,
+            },
+          ]}
+        >
+          {formatStopwatch(isIdle && !hasTime ? 0 : elapsed)}
+        </Text>
+
+        {isAdmin ? (
+          <View style={styles.controls}>
+            {isIdle && <ControlText label="Start" onPress={onStart} primary />}
+            {isRunning && (
+              <>
+                <ControlText label="Pause" onPress={onPause} />
+                <Text style={{ color: colors.mutedForeground }}>·</Text>
+                <ControlText label="Lap" onPress={() => onLap(elapsed)} />
+              </>
+            )}
+            {timerState === "paused" && (
+              <>
+                <ControlText label="Resume" onPress={onResume} primary />
+                {hasTime && (
+                  <>
+                    <Text style={{ color: colors.mutedForeground }}>·</Text>
+                    <ControlText label="Reset" onPress={onReset} />
+                  </>
+                )}
+              </>
+            )}
+          </View>
+        ) : (
+          <Text style={{ fontSize: 11, letterSpacing: 2, color: colors.mutedForeground, fontFamily: fonts.sans }}>
+            {isIdle ? "WAITING FOR HOST TO START…" : isRunning ? "RUNNING…" : "PAUSED — WAITING FOR HOST…"}
+          </Text>
+        )}
+
+        {laps.length === 0 && isRunning && isAdmin && (
+          <Text style={{ fontSize: 11, color: colors.mutedForeground, fontFamily: fonts.sans }}>
+            Press Lap to record a split
+          </Text>
+        )}
+      </View>
 
       {laps.length > 0 && (
-        <ScrollView style={styles.lapList} contentContainerStyle={{ paddingBottom: 8 }}>
+        <View style={styles.lapContainer}>
           <View style={styles.lapHeader}>
-            <Text style={[styles.lapHeaderText, { color: colors.mutedForeground }]}>LAPS</Text>
+            <View style={styles.lapHeaderLeft}>
+              <Text style={[styles.lapHeaderText, { color: colors.mutedForeground }]}>LAPS</Text>
+              {isAdmin && (
+                <Pressable
+                  onPress={confirmResetLaps}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Reset all laps"
+                >
+                  <Text style={[styles.lapResetText, { color: colors.destructive }]}>RESET</Text>
+                </Pressable>
+              )}
+            </View>
             <View style={{ flexDirection: "row", gap: 12 }}>
               <Text style={[styles.lapHeaderText, { color: colors.mutedForeground, width: 64, textAlign: "right" }]}>
                 Split
@@ -190,61 +246,74 @@ export function StopwatchView({
             </View>
           </View>
 
-          {isRunning && (
-            <View style={[styles.lapRow, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.lapNum, { color: colors.mutedForeground }]}>{laps.length + 1}</Text>
-              <Text style={{ flex: 1, fontSize: 13, fontStyle: "italic", color: colors.mutedForeground, fontFamily: fonts.sans }}>
-                Current
-              </Text>
-              <Text style={[styles.lapTime, { color: colors.mutedForeground }]}>{formatSplit(currentSplit)}</Text>
-              <Text style={[styles.lapTime, { color: colors.foreground }]}>{formatStopwatch(elapsed)}</Text>
-            </View>
-          )}
-
-          {sortedLaps.map((lap, i) => {
-            const prevLapTotal = sortedLaps[i + 1]?.duration_seconds ?? 0;
-            const split = lap.duration_seconds - prevLapTotal;
-            return (
-              <Pressable
-                key={lap.id}
-                onPress={() => lapActions(lap)}
-                style={[styles.lapRow, { borderBottomColor: colors.border }]}
-              >
-                <Text style={[styles.lapNum, { color: colors.mutedForeground }]}>{lap.lap_number}</Text>
-                <Text numberOfLines={1} style={{ flex: 1, fontSize: 13, color: colors.foreground, fontFamily: fonts.sans }}>
-                  {lap.name}
+          <ScrollView
+            style={styles.lapList}
+            contentContainerStyle={styles.lapListContent}
+            showsVerticalScrollIndicator
+            nestedScrollEnabled
+          >
+            {isRunning && (
+              <View style={[styles.lapRow, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.lapNum, { color: colors.mutedForeground }]}>{laps.length + 1}</Text>
+                <Text style={{ flex: 1, fontSize: 13, fontStyle: "italic", color: colors.mutedForeground, fontFamily: fonts.sans }}>
+                  Current
                 </Text>
-                <Text style={[styles.lapTime, { color: colors.mutedForeground }]}>{formatSplit(split)}</Text>
-                <Text style={[styles.lapTime, { color: colors.foreground }]}>{formatSplit(lap.duration_seconds)}</Text>
-                {isAdmin && <Ionicons name="ellipsis-horizontal" size={12} color={colors.mutedForeground} />}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
+                <Text style={[styles.lapTime, { color: colors.mutedForeground }]}>{formatSplit(currentSplit)}</Text>
+                <Text style={[styles.lapTime, { color: colors.foreground }]}>{formatStopwatch(elapsed)}</Text>
+              </View>
+            )}
 
-      {laps.length === 0 && isRunning && isAdmin && (
-        <Text style={{ fontSize: 11, color: colors.mutedForeground, fontFamily: fonts.sans }}>
-          Press Lap to record a split
-        </Text>
+            {sortedLaps.map((lap, i) => {
+              const split = getLapSplit(lap, sortedLaps[i + 1], timerStartedAt);
+              return (
+                <Pressable
+                  key={lap.id}
+                  onPress={() => lapActions(lap)}
+                  style={[styles.lapRow, { borderBottomColor: colors.border }]}
+                >
+                  <Text style={[styles.lapNum, { color: colors.mutedForeground }]}>{lap.lap_number}</Text>
+                  <Text numberOfLines={1} style={{ flex: 1, fontSize: 13, color: colors.foreground, fontFamily: fonts.sans }}>
+                    {lap.name}
+                  </Text>
+                  <Text style={[styles.lapTime, { color: colors.mutedForeground }]}>{formatSplit(split)}</Text>
+                  <Text style={[styles.lapTime, { color: colors.foreground }]}>{formatSplit(lap.duration_seconds)}</Text>
+                  {isAdmin && <Ionicons name="ellipsis-horizontal" size={12} color={colors.mutedForeground} />}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, alignItems: "center", gap: 16, paddingTop: 8 },
+  root: { flex: 1, alignSelf: "stretch" },
+  timerStage: {
+    flex: 1,
+    minHeight: 200,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    paddingHorizontal: 20,
+  },
   sessionName: { fontSize: 10, letterSpacing: 3 },
   clock: { fontSize: 64, letterSpacing: -2 },
   controls: { flexDirection: "row", alignItems: "center", gap: 16 },
-  lapList: { alignSelf: "stretch", flex: 1, paddingHorizontal: 20 },
+  lapContainer: { alignSelf: "stretch", maxHeight: 280, flexShrink: 1, paddingBottom: 8 },
+  lapList: { flexShrink: 1 },
+  lapListContent: { paddingHorizontal: 20, paddingBottom: 8 },
   lapHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 4,
-    paddingRight: 18,
+    paddingLeft: 20,
+    paddingRight: 38,
   },
   lapHeaderText: { fontSize: 9, letterSpacing: 2 },
+  lapHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  lapResetText: { fontSize: 9, letterSpacing: 1.5, fontFamily: "PlusJakartaSans_500Medium" },
   lapRow: {
     flexDirection: "row",
     alignItems: "center",

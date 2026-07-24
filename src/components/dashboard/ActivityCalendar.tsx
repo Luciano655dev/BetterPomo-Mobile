@@ -19,7 +19,17 @@ interface Entry {
   completed_at: string;
 }
 
-export function ActivityCalendar({ history }: { history: Entry[] }) {
+interface ActivityCalendarProps {
+  history: Entry[];
+  selectedDateKey: string | null;
+  onSelectDate: (dateKey: string) => void;
+}
+
+export function ActivityCalendar({
+  history,
+  selectedDateKey,
+  onSelectDate,
+}: ActivityCalendarProps) {
   const { colors, scheme } = useTheme();
   const currentYear = new Date().getFullYear();
 
@@ -93,12 +103,14 @@ export function ActivityCalendar({ history }: { history: Entry[] }) {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
 
-    const cells: ({ day: number; count: number } | null)[] = [];
+    const cells: ({ day: number; date: Date; dateKey: string; count: number } | null)[] = [];
     for (let i = 0; i < first.getDay(); i++) cells.push(null);
     for (let d = 1; d <= daysInMonth; d++) {
       const date = new Date(year, month, d);
       cells.push({
         day: d,
+        date,
+        dateKey: localDateKey(date),
         count: date > today ? -1 : (counts[localDateKey(date)] ?? 0),
       });
     }
@@ -131,11 +143,11 @@ export function ActivityCalendar({ history }: { history: Entry[] }) {
     const numWeeks =
       Math.round((gridEnd.getTime() - gridStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
 
-    const weeks: { count: number; key: string }[][] = [];
+    const weeks: { count: number; key: string; date: Date }[][] = [];
     const cur = new Date(gridStart);
     const monthCols: { label: string; w: number }[] = [];
     for (let w = 0; w < numWeeks; w++) {
-      const col: { count: number; key: string }[] = [];
+      const col: { count: number; key: string; date: Date }[] = [];
       for (let d = 0; d < 7; d++) {
         const key = localDateKey(cur);
         const outsideYear = cur.getFullYear() !== selectedYear;
@@ -146,7 +158,11 @@ export function ActivityCalendar({ history }: { history: Entry[] }) {
             w,
           });
         }
-        col.push({ count: outsideYear || future ? -1 : (counts[key] ?? 0), key });
+        col.push({
+          count: outsideYear || future ? -1 : (counts[key] ?? 0),
+          key,
+          date: new Date(cur),
+        });
         cur.setDate(cur.getDate() + 1);
       }
       weeks.push(col);
@@ -233,12 +249,21 @@ export function ActivityCalendar({ history }: { history: Entry[] }) {
                 {row.map((cell, c) => (
                   <View key={c} style={styles.monthCellWrap}>
                     {cell ? (
-                      <View
+                      <Pressable
+                        disabled={cell.count < 0}
+                        onPress={() => onSelectDate(cell.dateKey)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${cell.date.toLocaleDateString()} — ${cell.count} session${cell.count === 1 ? "" : "s"}`}
+                        accessibilityState={{ selected: selectedDateKey === cell.dateKey }}
                         style={[
                           styles.monthCell,
                           cell.count < 0
                             ? { borderWidth: 1, borderStyle: "dashed", borderColor: colors.border }
                             : { backgroundColor: cellColor(cell.count) },
+                          selectedDateKey === cell.dateKey && {
+                            borderWidth: 2,
+                            borderColor: colors.foreground,
+                          },
                         ]}
                       >
                         <Text
@@ -251,7 +276,7 @@ export function ActivityCalendar({ history }: { history: Entry[] }) {
                         >
                           {cell.day}
                         </Text>
-                      </View>
+                      </Pressable>
                     ) : null}
                   </View>
                 ))}
@@ -322,9 +347,23 @@ export function ActivityCalendar({ history }: { history: Entry[] }) {
                 {weeks.map((week, w) => (
                   <View key={w} style={{ gap: GAP }}>
                     {week.map((day) => (
-                      <View
+                      <Pressable
                         key={day.key}
-                        style={{ width: CELL, height: CELL, borderRadius: 3, backgroundColor: cellColor(day.count) }}
+                        disabled={day.count < 0}
+                        onPress={() => onSelectDate(day.key)}
+                        accessibilityRole="button"
+                        accessibilityLabel={day.count >= 0
+                          ? `${day.date.toLocaleDateString()} — ${day.count} session${day.count === 1 ? "" : "s"}`
+                          : undefined}
+                        accessibilityState={{ selected: selectedDateKey === day.key }}
+                        style={{
+                          width: CELL,
+                          height: CELL,
+                          borderRadius: 3,
+                          backgroundColor: cellColor(day.count),
+                          borderWidth: selectedDateKey === day.key ? 2 : 0,
+                          borderColor: colors.foreground,
+                        }}
                       />
                     ))}
                   </View>

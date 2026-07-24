@@ -202,7 +202,7 @@ export function useUserHistory(username: string | null) {
 }
 
 export function useUserActiveSession(username: string | null) {
-  return useSWR<{ session_name: string } | null>(
+  return useSWR<{ in_session: boolean; session_name: string | null } | null>(
     username ? `/api/users/${encodeURIComponent(username)}/active-session` : null,
     fetcher,
     { revalidateOnFocus: false, dedupingInterval: 30_000, refreshInterval: 60_000 },
@@ -273,10 +273,88 @@ export interface ConversationMember {
   emoji: string;
 }
 
+export type GroupRole = "owner" | "admin" | "member";
+
+export interface GroupInvitation {
+  id: string;
+  invited_user: string;
+  invited_by: string;
+  status: "pending" | "accepted" | "declined" | "revoked" | "expired";
+  created_at: string;
+  expires_at: string;
+  profile: { id: string; username: string; display_name: string; emoji: string } | null;
+}
+
+export interface PendingGroupInvitation {
+  id: string;
+  conversation_id: string;
+  invited_by: string;
+  created_at: string;
+  expires_at: string;
+  group: { id: string; title: string; emoji: string } | null;
+  inviter: { id: string; username: string; display_name: string; emoji: string } | null;
+}
+
+export interface GroupInviteLink {
+  id: string;
+  conversation_id: string;
+  created_at: string;
+  expires_at: string;
+  max_uses: number;
+  use_count: number;
+  revoked_at?: string | null;
+}
+
+export interface GroupMemberActivity {
+  in_session: boolean;
+  total_seconds?: number | null;
+  focus_seconds?: number | null;
+  measured_at?: string;
+  is_focus_running?: boolean;
+  session?: { id: string; name: string; code: string; session_type: "pomodoro" | "stopwatch"; is_password_protected: boolean } | null;
+}
+
+export interface GroupMemberDetail extends ConversationMember {
+  role: GroupRole;
+  joined_at: string;
+  activity_sharing_started_at: string | null;
+  activity: GroupMemberActivity;
+}
+
+export interface GroupDetails {
+  id: string;
+  title: string;
+  emoji: string;
+  timezone: string;
+  my_role: GroupRole;
+  activity_sharing_started_at: string | null;
+  members: GroupMemberDetail[];
+  pending_invitations: GroupInvitation[];
+}
+
+export interface GroupReportMember extends ConversationMember {
+  role: GroupRole;
+  total_seconds: number;
+  focus_seconds: number;
+  focus_ratio: number;
+  daily: { date: string; total_seconds: number; focus_seconds: number }[];
+  sessions: { id: string; name: string; total_seconds: number; focus_seconds: number; completed_at: string; is_private: boolean }[];
+}
+
+export interface GroupReport {
+  timezone: string;
+  from: string;
+  to: string;
+  total_seconds: number;
+  focus_seconds: number;
+  members: GroupReportMember[];
+}
+
 export interface Conversation {
   id: string;
   is_group: boolean;
   title: string | null;
+  emoji: string | null;
   last_message_at: string;
   last_message_preview: string | null;
   last_message_kind: "text" | "session_invite" | null;
@@ -295,6 +373,10 @@ export interface ChatMessage {
     code?: string;
     name?: string;
     session_type?: "pomodoro" | "stopwatch";
+    system_event?: "member_joined" | "member_left" | "member_removed" | "member_promoted" | "member_demoted" | "ownership_transferred" | "group_renamed";
+    user_id?: string;
+    username?: string;
+    display_name?: string;
   };
   created_at: string;
   expires_at: string;
@@ -308,7 +390,47 @@ export function useConversations() {
   });
 }
 
-export type NotificationType = "friend_request" | "friend_accept" | "session_invite" | "group_add" | "trial_ending";
+export function useGroupDetails(conversationId: string | null) {
+  return useSWR<GroupDetails>(
+    conversationId ? `/api/chat/conversations/${conversationId}/details` : null,
+    fetcher,
+    {
+      revalidateOnFocus: true,
+      dedupingInterval: 10_000,
+      refreshInterval: (data) => data ? 30_000 : 0,
+      errorRetryCount: 2,
+      errorRetryInterval: 1_500,
+    },
+  );
+}
+
+export function useGroupInvitations() {
+  return useSWR<PendingGroupInvitation[]>("/api/chat/group-invitations", fetcher, {
+    revalidateOnFocus: true,
+    dedupingInterval: 8_000,
+    refreshInterval: 20_000,
+  });
+}
+
+export function useGroupInviteLinks(conversationId: string | null, enabled = true) {
+  return useSWR<GroupInviteLink[]>(
+    conversationId && enabled ? `/api/chat/conversations/${conversationId}/invite-links` : null,
+    fetcher,
+    { revalidateOnFocus: true, dedupingInterval: 8_000 },
+  );
+}
+
+export function useGroupReport(conversationId: string | null, from: string, to: string) {
+  return useSWR<GroupReport>(
+    conversationId
+      ? `/api/chat/conversations/${conversationId}/report?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+      : null,
+    fetcher,
+    { revalidateOnFocus: true, dedupingInterval: 15_000, errorRetryCount: 2, errorRetryInterval: 1_500 },
+  );
+}
+
+export type NotificationType = "friend_request" | "friend_accept" | "session_invite" | "group_add" | "group_invite" | "trial_ending";
 
 export interface AppNotification {
   id: string;
@@ -324,6 +446,7 @@ export interface AppNotification {
     session_type?: "pomodoro" | "stopwatch";
     title?: string | null;
     conversation_id?: string;
+    invitation_id?: string;
     session_name?: string | null;
   };
   read_at: string | null;

@@ -2,11 +2,20 @@ import { Redirect } from "expo-router";
 import React, { useEffect, useState } from "react";
 
 import { OfflineSessionScreen } from "@/components/session/OfflineSessionScreen";
+import { DialogProvider } from "@/components/ui/dialog";
 import { useProfile } from "@/lib/hooks";
 import { loadOfflineSession, type OfflineSessionState } from "@/lib/offline-session";
 import { useAuth } from "@/providers/AuthProvider";
 
 export default function OfflineSessionRoute() {
+  return (
+    <DialogProvider priority={1}>
+      <OfflineSessionRouteContent />
+    </DialogProvider>
+  );
+}
+
+function OfflineSessionRouteContent() {
   const { session } = useAuth();
   const { data: profile } = useProfile();
   const userId = session?.user.id;

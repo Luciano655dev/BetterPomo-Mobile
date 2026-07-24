@@ -276,7 +276,16 @@ export function ConfigPanel({
     }
   }
 
-  async function setRole(participantId: string, role: "admin" | "member") {
+  async function setRole(participantId: string, role: "admin" | "member", displayName: string) {
+    const confirmed = await dialog.confirm({
+      title: role === "admin" ? `Make ${displayName} an admin?` : `Remove ${displayName} as an admin?`,
+      message: role === "admin"
+        ? "Admins can control the shared timer and edit session settings."
+        : "They will no longer be able to control the timer or edit session settings.",
+      confirmText: role === "admin" ? "Make admin" : "Make member",
+      destructive: role !== "admin",
+    });
+    if (!confirmed) return;
     try {
       await api.patch(`/api/sessions/${sessionId}/participants/${participantId}`, { role });
       onParticipantsChange();
@@ -304,8 +313,15 @@ export function ConfigPanel({
 
     const choice = await dialog.actions({ title: `${displayName} (@${username})`, options });
     if (choice === "view" && onOpenUser) onOpenUser(username);
-    else if (choice === "role") setRole(p.id, p.role === "admin" ? "member" : "admin");
+    else if (choice === "role") setRole(p.id, p.role === "admin" ? "member" : "admin", displayName);
     else if (choice === "kick") {
+      const confirmed = await dialog.confirm({
+        title: `Remove ${displayName} from this session?`,
+        message: "They will be disconnected and must join again to return.",
+        confirmText: "Remove participant",
+        destructive: true,
+      });
+      if (!confirmed) return;
       try {
         await api.patch(`/api/sessions/${sessionId}/participants/${p.id}`, {
           left_at: new Date().toISOString(),
